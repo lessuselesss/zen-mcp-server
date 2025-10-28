@@ -1,7 +1,10 @@
 {
   "name": "gemini",
-  "command": "gemini",
+  "command": "nix",
   "additional_args": [
+    "run",
+    "nixpkgs#gemini-cli",
+    "--",
     "--yolo"
   ],
   "env": {},
