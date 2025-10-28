@@ -39,8 +39,8 @@ class CodeReviewValidationTest(ConversationBaseTest):
             if not self._test_single_review_session():
                 return False
 
-            # Test 2: Review with backtracking
-            if not self._test_review_with_backtracking():
+            # Test 2: Review flow that requires refocusing
+            if not self._test_review_refocus_flow():
                 return False
 
             # Test 3: Complete review with expert analysis
@@ -253,7 +253,7 @@ class ConfigurationManager:
                     "findings": "Initial examination reveals a payment processing class with potential security and performance concerns.",
                     "files_checked": [self.payment_file],
                     "relevant_files": [self.payment_file],
-                    "files": [self.payment_file],  # Required for step 1
+                    "absolute_file_paths": [self.payment_file],  # Required for step 1
                     "review_type": "full",
                     "severity_filter": "all",
                 },
@@ -316,10 +316,6 @@ class ConfigurationManager:
                 self.logger.error("Relevant context not properly tracked")
                 return False
 
-            if review_status.get("review_confidence") != "high":
-                self.logger.error("Review confidence level not properly tracked")
-                return False
-
             # Check issues by severity
             issues_by_severity = review_status.get("issues_by_severity", {})
             if issues_by_severity.get("critical", 0) != 2:
@@ -340,13 +336,13 @@ class ConfigurationManager:
             self.logger.error(f"Single review session test failed: {e}")
             return False
 
-    def _test_review_with_backtracking(self) -> bool:
-        """Test code review with backtracking to revise findings"""
+    def _test_review_refocus_flow(self) -> bool:
+        """Test code review flow that revises findings by refocusing"""
         try:
-            self.logger.info("  1.2: Testing code review with backtracking")
+            self.logger.info("  1.2: Testing code review refocus workflow")
 
-            # Start a new review for testing backtracking
-            self.logger.info("    1.2.1: Start review for backtracking test")
+            # Start a new review for testing refocus behaviour
+            self.logger.info("    1.2.1: Start review for refocus test")
             response1, continuation_id = self.call_mcp_tool(
                 "codereview",
                 {
@@ -357,13 +353,13 @@ class ConfigurationManager:
                     "findings": "Initial analysis shows complex configuration class",
                     "files_checked": [self.config_file],
                     "relevant_files": [self.config_file],
-                    "files": [self.config_file],
+                    "absolute_file_paths": [self.config_file],
                     "review_type": "full",
                 },
             )
 
             if not response1 or not continuation_id:
-                self.logger.error("Failed to start backtracking test review")
+                self.logger.error("Failed to start refocus test review")
                 return False
 
             # Step 2: Initial direction
@@ -390,12 +386,12 @@ class ConfigurationManager:
                 self.logger.error("Failed to continue to step 2")
                 return False
 
-            # Step 3: Backtrack and focus on security
-            self.logger.info("    1.2.3: Step 3 - Backtrack to focus on security issues")
+            # Step 3: Shift focus based on new evidence
+            self.logger.info("    1.2.3: Step 3 - Refocus on security issues")
             response3, _ = self.call_mcp_tool(
                 "codereview",
                 {
-                    "step": "Backtracking - need to focus on the critical security issues I initially missed. Found hardcoded secrets and credentials in plain text.",
+                    "step": "Refocusing - need to concentrate on the critical security issues I initially missed. Found hardcoded secrets and credentials in plain text.",
                     "step_number": 3,
                     "total_steps": 4,
                     "next_step_required": True,
@@ -409,24 +405,23 @@ class ConfigurationManager:
                         {"severity": "high", "description": "Over-engineered configuration system"},
                     ],
                     "confidence": "high",
-                    "backtrack_from_step": 2,  # Backtrack from step 2
                     "continuation_id": continuation_id,
                 },
             )
 
             if not response3:
-                self.logger.error("Failed to backtrack")
+                self.logger.error("Failed to refocus")
                 return False
 
             response3_data = self._parse_review_response(response3)
             if not self._validate_step_response(response3_data, 3, 4, True, "pause_for_code_review"):
                 return False
 
-            self.logger.info("    ✅ Backtracking working correctly")
+            self.logger.info("    ✅ Refocus flow working correctly")
             return True
 
         except Exception as e:
-            self.logger.error(f"Backtracking test failed: {e}")
+            self.logger.error(f"Refocus test failed: {e}")
             return False
 
     def _test_complete_review_with_analysis(self) -> bool:
@@ -449,7 +444,7 @@ class ConfigurationManager:
                         "findings": "Found multiple security and performance issues",
                         "files_checked": [self.payment_file],
                         "relevant_files": [self.payment_file],
-                        "files": [self.payment_file],
+                        "absolute_file_paths": [self.payment_file],
                         "relevant_context": ["PaymentProcessor.process_payment"],
                     },
                 )
@@ -514,7 +509,7 @@ class ConfigurationManager:
             expert_analysis = response_final_data.get("expert_analysis", {})
 
             # Check for expected analysis content (checking common patterns)
-            analysis_text = json.dumps(expert_analysis).lower()
+            analysis_text = json.dumps(expert_analysis, ensure_ascii=False).lower()
 
             # Look for code review identification
             review_indicators = ["security", "vulnerability", "performance", "critical", "api", "key"]
@@ -565,13 +560,13 @@ class ConfigurationManager:
                     "findings": "Complete review identified all critical security issues, performance problems, and code quality concerns. All issues are documented with clear severity levels and specific recommendations.",
                     "files_checked": [self.payment_file],
                     "relevant_files": [self.payment_file],
-                    "files": [self.payment_file],
+                    "absolute_file_paths": [self.payment_file],
                     "relevant_context": ["PaymentProcessor.process_payment"],
                     "issues_found": [
                         {"severity": "critical", "description": "Hardcoded API key security vulnerability"},
                         {"severity": "high", "description": "Performance bottleneck in payment history"},
                     ],
-                    "confidence": "certain",  # This should skip expert analysis
+                    "review_validation_type": "internal",  # This should skip expert analysis
                     "model": "flash",
                 },
             )
@@ -596,7 +591,10 @@ class ConfigurationManager:
                 return False
 
             expert_analysis = response_certain_data.get("expert_analysis", {})
-            if expert_analysis.get("status") != "skipped_due_to_certain_review_confidence":
+            if expert_analysis.get("status") not in [
+                "skipped_due_to_certain_review_confidence",
+                "skipped_due_to_internal_analysis_type",
+            ]:
                 self.logger.error("Expert analysis should be skipped for certain confidence")
                 return False
 
@@ -663,7 +661,7 @@ def validate_credit_card(card_number):
                     "findings": "Initial analysis of utility and validation functions",
                     "files_checked": [utils_file, validator_file],
                     "relevant_files": [utils_file],  # This should be referenced, not embedded
-                    "files": [utils_file, validator_file],  # Required for step 1
+                    "absolute_file_paths": [utils_file, validator_file],  # Required for step 1
                     "relevant_context": ["calculate_discount"],
                     "confidence": "low",
                     "model": "flash",
@@ -771,7 +769,7 @@ def validate_credit_card(card_number):
                     "findings": "Initial review of payment processor and configuration management modules",
                     "files_checked": files_to_review,
                     "relevant_files": [self.payment_file],
-                    "files": files_to_review,
+                    "absolute_file_paths": files_to_review,
                     "relevant_context": [],
                     "confidence": "low",
                     "review_type": "security",

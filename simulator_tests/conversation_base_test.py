@@ -24,8 +24,12 @@ EXAMPLE:
 
             # Step 2: Continue with codereview tool - memory is preserved!
             result2, _ = self.call_mcp_tool_direct("codereview", {
-                "files": ["/path/to/file.py"],
-                "prompt": "Focus on security issues",
+                "step": "Focus on security issues in this code",
+                "step_number": 1,
+                "total_steps": 1,
+                "next_step_required": False,
+                "findings": "Starting security-focused code review",
+                "relevant_files": ["/path/to/file.py"],
                 "continuation_id": continuation_id
             })
 """
@@ -33,6 +37,8 @@ EXAMPLE:
 import asyncio
 import json
 from typing import Optional
+
+from tools.shared.exceptions import ToolExecutionError
 
 from .base_test import BaseSimulatorTest
 
@@ -154,7 +160,15 @@ class ConversationBaseTest(BaseSimulatorTest):
             params["_resolved_model_name"] = model_name
 
             # Execute tool asynchronously
-            result = loop.run_until_complete(tool.execute(params))
+            try:
+                result = loop.run_until_complete(tool.execute(params))
+            except ToolExecutionError as exc:
+                response_text = exc.payload
+                continuation_id = self._extract_continuation_id_from_response(response_text)
+                self.logger.debug(f"Tool '{tool_name}' returned error payload in-process")
+                if self.verbose and response_text:
+                    self.logger.debug(f"Error response preview: {response_text[:500]}...")
+                return response_text, continuation_id
 
             if not result or len(result) == 0:
                 return None, None

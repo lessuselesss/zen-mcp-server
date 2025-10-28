@@ -7,7 +7,7 @@ for O3 models while maintaining them for regular models.
 
 from unittest.mock import Mock, patch
 
-from providers.openai_provider import OpenAIModelProvider
+from providers.openai import OpenAIModelProvider
 
 
 class TestO3TemperatureParameterFixSimple:
@@ -175,7 +175,7 @@ class TestO3TemperatureParameterFixSimple:
     @patch("utils.model_restrictions.get_restriction_service")
     def test_all_o3_models_have_correct_temperature_capability(self, mock_restriction_service):
         """Test that all O3/O4 models have supports_temperature=False in their capabilities."""
-        from providers.openai_provider import OpenAIModelProvider
+        from providers.openai import OpenAIModelProvider
 
         # Mock restriction service to allow all models
         mock_service = Mock()
@@ -205,13 +205,13 @@ class TestO3TemperatureParameterFixSimple:
                 ), f"Model {model} capabilities should have supports_temperature field"
                 assert capabilities.supports_temperature is True, f"Model {model} should have supports_temperature=True"
             except ValueError:
-                # Skip if model not in SUPPORTED_MODELS (that's okay for this test)
+                # Skip if model not in MODEL_CAPABILITIES (that's okay for this test)
                 pass
 
     @patch("utils.model_restrictions.get_restriction_service")
     def test_openai_provider_temperature_constraints(self, mock_restriction_service):
         """Test that OpenAI provider has correct temperature constraints for O3 models."""
-        from providers.openai_provider import OpenAIModelProvider
+        from providers.openai import OpenAIModelProvider
 
         # Mock restriction service to allow all models
         mock_service = Mock()
@@ -230,7 +230,7 @@ class TestO3TemperatureParameterFixSimple:
         assert temp_constraint.validate(0.5) is False
 
         # Test regular model constraints - use gpt-4.1 which is supported
-        gpt41_capabilities = provider.get_capabilities("gpt-4.1-2025-04-14")
+        gpt41_capabilities = provider.get_capabilities("gpt-4.1")
         assert gpt41_capabilities.temperature_constraint is not None
 
         # Regular models should allow a range

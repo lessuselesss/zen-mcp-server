@@ -38,8 +38,8 @@ class RefactorValidationTest(ConversationBaseTest):
             if not self._test_single_refactoring_session():
                 return False
 
-            # Test 2: Refactoring analysis with backtracking
-            if not self._test_refactoring_with_backtracking():
+            # Test 2: Refactoring analysis requiring refocus
+            if not self._test_refactoring_refocus_flow():
                 return False
 
             # Test 3: Complete refactoring analysis with expert analysis
@@ -125,7 +125,7 @@ class DataProcessorManager:
         # Code smell: Duplicate date formatting logic
         if output_format == 'json':
             processed_data['processed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            result = json.dumps(processed_data)
+            result = json.dumps(processed_data, ensure_ascii=False)
         elif output_format == 'csv':
             processed_data['processed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             result = f"{processed_data['full_name']},{processed_data['email_domain']},{processed_data['age_category']}"
@@ -389,13 +389,13 @@ class UserData:
             self.logger.error(f"Single refactoring session test failed: {e}")
             return False
 
-    def _test_refactoring_with_backtracking(self) -> bool:
-        """Test refactoring analysis with backtracking to revise findings"""
+    def _test_refactoring_refocus_flow(self) -> bool:
+        """Test refactoring analysis that shifts focus mid-investigation"""
         try:
-            self.logger.info("  1.2: Testing refactoring analysis with backtracking")
+            self.logger.info("  1.2: Testing refactoring analysis refocus workflow")
 
-            # Start a new refactoring analysis for testing backtracking
-            self.logger.info("    1.2.1: Start refactoring analysis for backtracking test")
+            # Start a new refactoring analysis for testing refocus behaviour
+            self.logger.info("    1.2.1: Start refactoring analysis for refocus test")
             response1, continuation_id = self.call_mcp_tool(
                 "refactor",
                 {
@@ -412,7 +412,7 @@ class UserData:
             )
 
             if not response1 or not continuation_id:
-                self.logger.error("Failed to start backtracking test refactoring analysis")
+                self.logger.error("Failed to start refocus test refactoring analysis")
                 return False
 
             # Step 2: Wrong direction
@@ -437,11 +437,11 @@ class UserData:
                 return False
 
             # Step 3: Backtrack from step 2
-            self.logger.info("    1.2.3: Step 3 - Backtrack and focus on function decomposition")
+            self.logger.info("    1.2.3: Step 3 - Refocus on function decomposition")
             response3, _ = self.call_mcp_tool(
                 "refactor",
                 {
-                    "step": "Backtracking - the real decomposition opportunity is the god function process_everything. Let me analyze function-level refactoring instead.",
+                    "step": "Refocusing - the real decomposition opportunity is the god function process_everything. Let me analyze function-level refactoring instead.",
                     "step_number": 3,
                     "total_steps": 4,
                     "next_step_required": True,
@@ -462,13 +462,12 @@ class UserData:
                         },
                     ],
                     "confidence": "partial",
-                    "backtrack_from_step": 2,  # Backtrack from step 2
                     "continuation_id": continuation_id,
                 },
             )
 
             if not response3:
-                self.logger.error("Failed to backtrack")
+                self.logger.error("Failed to refocus")
                 return False
 
             response3_data = self._parse_refactor_response(response3)
@@ -477,11 +476,11 @@ class UserData:
             ):
                 return False
 
-            self.logger.info("    ✅ Backtracking working correctly for refactoring analysis")
+            self.logger.info("    ✅ Refocus working correctly for refactoring analysis")
             return True
 
         except Exception as e:
-            self.logger.error(f"Refactoring backtracking test failed: {e}")
+            self.logger.error(f"Refocusing test failed: {e}")
             return False
 
     def _test_complete_refactoring_with_analysis(self) -> bool:
@@ -580,7 +579,7 @@ class UserData:
                     self.logger.error("Missing expert_analysis in final response")
                     return False
                 expert_analysis = response_final_data.get("expert_analysis", {})
-                analysis_content = json.dumps(expert_analysis).lower()
+                analysis_content = json.dumps(expert_analysis, ensure_ascii=False).lower()
             elif actual_status == "files_required_to_continue":
                 # For files_required_to_continue, analysis is in content field
                 if "content" not in response_final_data:
@@ -708,7 +707,7 @@ def format_output(data, format_type):
     \"\"\"Format output - duplicate logic\"\"\"
     if format_type == 'json':
         import json
-        return json.dumps(data)
+        return json.dumps(data, ensure_ascii=False)
     elif format_type == 'csv':
         return ','.join(str(v) for v in data.values())
     else:

@@ -2,7 +2,7 @@
 SECAUDIT Workflow tool - Comprehensive security audit with systematic investigation
 
 This tool provides a structured workflow for comprehensive security assessment and analysis.
-It guides Claude through systematic investigation steps with forced pauses between each step
+It guides the CLI agent through systematic investigation steps with forced pauses between each step
 to ensure thorough security examination, vulnerability identification, and compliance assessment
 before proceeding. The tool supports complex security scenarios including OWASP Top 10 coverage,
 compliance framework mapping, and technology-specific security patterns.
@@ -36,97 +36,23 @@ logger = logging.getLogger(__name__)
 # Tool-specific field descriptions for security audit workflow
 SECAUDIT_WORKFLOW_FIELD_DESCRIPTIONS = {
     "step": (
-        "Describe what you're currently investigating for security audit by thinking deeply about security "
-        "implications, threat vectors, and protection mechanisms. In step 1, clearly state your security "
-        "audit plan and begin forming a systematic approach after identifying the application type, "
-        "technology stack, and relevant security requirements. You must begin by passing the file path "
-        "for the initial code you are about to audit in relevant_files. CRITICAL: Follow the OWASP Top 10 "
-        "systematic checklist, examine authentication/authorization mechanisms, analyze input validation "
-        "and data handling, assess dependency vulnerabilities, and evaluate infrastructure security. "
-        "Consider not only obvious vulnerabilities but also subtle security gaps, configuration issues, "
-        "design flaws, and compliance requirements. Map out the attack surface, understand the threat "
-        "landscape, and identify areas requiring deeper security analysis. In all later steps, continue "
-        "exploring with precision: trace security dependencies, verify security assumptions, and adapt "
-        "your understanding as you uncover security evidence."
+        "Step 1: outline the audit strategy (OWASP Top 10, auth, validation, etc.). Later steps: report findings. MANDATORY: use `relevant_files` for code references and avoid large snippets."
     ),
-    "step_number": (
-        "The index of the current step in the security audit sequence, beginning at 1. Each step should "
-        "build upon or revise the previous one."
-    ),
-    "total_steps": (
-        "Your current estimate for how many steps will be needed to complete the security audit. "
-        "Adjust and increase as new security findings emerge."
-    ),
-    "next_step_required": (
-        "Set to true if you plan to continue the investigation with another step. False means you believe "
-        "the security audit analysis is complete and ALL threats have been uncovered, ready for expert validation."
-    ),
-    "findings": (
-        "Summarize everything discovered in this step about security aspects of the code being audited. "
-        "Include analysis of security vulnerabilities, authentication/authorization issues, input validation "
-        "gaps, encryption weaknesses, configuration problems, and compliance concerns. Be specific and avoid "
-        "vague language—document what you now know about the security posture and how it affects your "
-        "assessment. IMPORTANT: Document both positive security findings (proper implementations, good "
-        "security practices) and concerns (vulnerabilities, security gaps, compliance issues). In later "
-        "steps, confirm or update past findings with additional evidence."
-    ),
-    "files_checked": (
-        "List all files (as absolute paths, do not clip or shrink file names) examined during the security "
-        "audit investigation so far. Include even files ruled out or found to be unrelated, as this tracks "
-        "your exploration path."
-    ),
-    "relevant_files": (
-        "For when this is the first step, please pass absolute file paths of relevant code to audit (do not clip "
-        "file paths). When used for the final step, this contains a subset of files_checked (as full absolute paths) "
-        "that contain code directly relevant to the security audit or contain significant security issues, patterns, "
-        "or examples worth highlighting. Only list those that are directly tied to important security findings, "
-        "vulnerabilities, authentication issues, or security architectural decisions. This could include "
-        "authentication modules, input validation files, configuration files, or files with notable security patterns."
-    ),
-    "relevant_context": (
-        "List methods, functions, classes, or modules that are central to the security audit findings, in the "
-        "format 'ClassName.methodName', 'functionName', or 'module.ClassName'. Prioritize those that contain "
-        "security vulnerabilities, demonstrate security patterns, show authentication/authorization logic, or "
-        "represent key security architectural decisions."
-    ),
-    "issues_found": (
-        "List of security issues identified during the investigation. Each issue should be a dictionary with "
-        "'severity' (critical, high, medium, low) and 'description' fields. Include security vulnerabilities, "
-        "authentication bypasses, authorization flaws, injection vulnerabilities, cryptographic weaknesses, "
-        "configuration issues, compliance gaps, etc."
-    ),
-    "confidence": (
-        "Indicate your current confidence in the security audit assessment. Use: 'exploring' (starting analysis), "
-        "'low' (early investigation), 'medium' (some evidence gathered), 'high' (strong evidence), 'certain' "
-        "(only when the security audit is thoroughly complete and all significant security issues are identified). "
-        "Do NOT use 'certain' unless the security audit is comprehensively complete, use 'high' instead not 100% "
-        "sure. Using 'certain' prevents additional expert analysis."
-    ),
-    "backtrack_from_step": (
-        "If an earlier finding or assessment needs to be revised or discarded, specify the step number from which "
-        "to start over. Use this to acknowledge investigative dead ends and correct the course."
-    ),
-    "images": (
-        "Optional list of absolute paths to architecture diagrams, security models, threat models, or visual "
-        "references that help with security audit context. Only include if they materially assist understanding "
-        "or assessment of security posture."
-    ),
-    "security_scope": (
-        "Define the security scope and application context (web app, mobile app, API, enterprise system, "
-        "cloud service). Include technology stack, user types, data sensitivity, and threat landscape. "
-        "This helps focus the security assessment appropriately."
-    ),
-    "threat_level": (
-        "Assess the threat level based on application context: 'low' (internal tools, low-risk data), "
-        "'medium' (customer-facing, business data), 'high' (financial, healthcare, regulated industry), "
-        "'critical' (payment processing, sensitive personal data). This guides prioritization."
-    ),
-    "compliance_requirements": (
-        "List applicable compliance frameworks and security standards (SOC2, PCI DSS, HIPAA, GDPR, "
-        "ISO 27001, NIST). Include industry-specific requirements that affect security controls."
-    ),
-    "audit_focus": "Primary security focus areas for this audit (owasp, compliance, infrastructure, dependencies)",
-    "severity_filter": "Minimum severity level to report on the security issues found",
+    "step_number": "Current security-audit step number (starts at 1).",
+    "total_steps": "Expected number of audit steps; adjust as new risks surface.",
+    "next_step_required": "True while additional threat analysis remains; set False once you are ready to hand off for validation.",
+    "findings": "Summarize vulnerabilities, auth issues, validation gaps, compliance notes, and positives; update prior findings as needed.",
+    "files_checked": "Absolute paths for every file inspected, including rejected candidates.",
+    "relevant_files": "Absolute paths for security-relevant files (auth modules, configs, sensitive code).",
+    "relevant_context": "Security-critical classes/methods (e.g. 'AuthService.login', 'encryption_helper').",
+    "issues_found": "Security issues with severity (critical/high/medium/low) and descriptions (vulns, auth flaws, injection, crypto, config).",
+    "confidence": "exploring/low/medium/high/very_high/almost_certain/certain. 'certain' blocks external validation—use only when fully complete.",
+    "images": "Optional absolute paths to diagrams or threat models that inform the audit.",
+    "security_scope": "Security context (web, mobile, API, cloud, etc.) including stack, user types, data sensitivity, and threat landscape.",
+    "threat_level": "Assess the threat level: low (internal/low-risk), medium (customer-facing/business data), high (regulated or sensitive), critical (financial/healthcare/PII).",
+    "compliance_requirements": "Applicable compliance frameworks or standards (SOC2, PCI DSS, HIPAA, GDPR, ISO 27001, NIST, etc.).",
+    "audit_focus": "Primary focus area: owasp, compliance, infrastructure, dependencies, or comprehensive.",
+    "severity_filter": "Minimum severity to include when reporting security issues.",
 }
 
 
@@ -154,11 +80,6 @@ class SecauditRequest(WorkflowRequest):
         default_factory=list, description=SECAUDIT_WORKFLOW_FIELD_DESCRIPTIONS["issues_found"]
     )
     confidence: Optional[str] = Field("low", description=SECAUDIT_WORKFLOW_FIELD_DESCRIPTIONS["confidence"])
-
-    # Optional backtracking field
-    backtrack_from_step: Optional[int] = Field(
-        None, description=SECAUDIT_WORKFLOW_FIELD_DESCRIPTIONS["backtrack_from_step"]
-    )
 
     # Optional images for visual context
     images: Optional[list[str]] = Field(default=None, description=SECAUDIT_WORKFLOW_FIELD_DESCRIPTIONS["images"])
@@ -217,23 +138,9 @@ class SecauditTool(WorkflowTool):
     def get_description(self) -> str:
         """Return a description of the tool."""
         return (
-            "COMPREHENSIVE SECURITY AUDIT WORKFLOW - Step-by-step security assessment with expert analysis. "
-            "This tool guides you through a systematic investigation process where you:\\n\\n"
-            "1. Start with step 1: describe your security investigation plan\\n"
-            "2. STOP and investigate code structure, patterns, and security issues\\n"
-            "3. Report findings in step 2 with concrete evidence from actual code analysis\\n"
-            "4. Continue investigating between each step\\n"
-            "5. Track findings, relevant files, and security issues throughout\\n"
-            "6. Update assessments as understanding evolves\\n"
-            "7. Once investigation is complete, receive expert security analysis\\n\\n"
-            "IMPORTANT: This tool enforces investigation between steps:\\n"
-            "- After each call, you MUST investigate before calling again\\n"
-            "- Each step must include NEW evidence from code examination\\n"
-            "- No recursive calls without actual investigation work\\n"
-            "- The tool will specify which step number to use next\\n"
-            "- Follow the required_actions list for investigation guidance\\n\\n"
-            "Perfect for: comprehensive security assessment, OWASP Top 10 analysis, compliance evaluation, "
-            "vulnerability identification, threat modeling, security architecture review."
+            "Performs comprehensive security audit with systematic vulnerability assessment. "
+            "Use for OWASP Top 10 analysis, compliance evaluation, threat modeling, and security architecture review. "
+            "Guides through structured security investigation with expert validation."
         )
 
     def get_system_prompt(self) -> str:
@@ -263,7 +170,9 @@ class SecauditTool(WorkflowTool):
         """
         return SECAUDIT_WORKFLOW_FIELD_DESCRIPTIONS
 
-    def get_required_actions(self, step_number: int, confidence: str, findings: str, total_steps: int) -> list[str]:
+    def get_required_actions(
+        self, step_number: int, confidence: str, findings: str, total_steps: int, request=None
+    ) -> list[str]:
         """
         Provide step-specific guidance for systematic security analysis.
 
@@ -351,7 +260,7 @@ class SecauditTool(WorkflowTool):
         # Add investigation summary
         investigation_summary = self._build_security_audit_summary(consolidated_findings)
         context_parts.append(
-            f"\n=== CLAUDE'S SECURITY INVESTIGATION ===\n{investigation_summary}\n=== END INVESTIGATION ==="
+            f"\n=== AGENT'S SECURITY INVESTIGATION ===\n{investigation_summary}\n=== END INVESTIGATION ==="
         )
 
         # Add security configuration context if available
@@ -480,13 +389,8 @@ class SecauditTool(WorkflowTool):
             },
             "confidence": {
                 "type": "string",
-                "enum": ["exploring", "low", "medium", "high", "certain"],
+                "enum": ["exploring", "low", "medium", "high", "very_high", "almost_certain", "certain"],
                 "description": SECAUDIT_WORKFLOW_FIELD_DESCRIPTIONS["confidence"],
-            },
-            "backtrack_from_step": {
-                "type": "integer",
-                "minimum": 1,
-                "description": SECAUDIT_WORKFLOW_FIELD_DESCRIPTIONS["backtrack_from_step"],
             },
             "issues_found": {
                 "type": "array",
@@ -566,7 +470,7 @@ class SecauditTool(WorkflowTool):
         return step_data
 
     def should_skip_expert_analysis(self, request, consolidated_findings) -> bool:
-        """Security audit workflow skips expert analysis when Claude has "certain" confidence."""
+        """Security audit workflow skips expert analysis when the CLI agent has "certain" confidence."""
         return request.confidence == "certain" and not request.next_step_required
 
     def store_initial_issue(self, step_description: str):
@@ -762,7 +666,7 @@ class SecauditTool(WorkflowTool):
 
     def get_skip_reason(self) -> str:
         """Security audit-specific skip reason."""
-        return "Claude completed comprehensive security audit with full confidence"
+        return "Completed comprehensive security audit with full confidence locally"
 
     def get_skip_expert_analysis_status(self) -> str:
         """Security audit-specific expert analysis skip status."""

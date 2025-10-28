@@ -21,7 +21,7 @@ architectural decisions, and breaking down large problems into manageable steps.
 """
 
 import logging
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from pydantic import Field, field_validator
 
@@ -39,21 +39,18 @@ logger = logging.getLogger(__name__)
 # Tool-specific field descriptions matching original planner tool
 PLANNER_FIELD_DESCRIPTIONS = {
     "step": (
-        "Your current planning step. For the first step, describe the task/problem to plan and be extremely expressive "
-        "so that subsequent steps can break this down into simpler steps. "
-        "For subsequent steps, provide the actual planning step content. Can include: regular planning steps, "
-        "revisions of previous steps, questions about previous decisions, realizations about needing more analysis, "
-        "changes in approach, etc."
+        "Planning content for this step. Step 1: describe the task, problem and scope. Later steps: capture updates, "
+        "revisions, branches, or open questions that shape the plan."
     ),
-    "step_number": "Current step number in the planning sequence (starts at 1)",
-    "total_steps": "Current estimate of total steps needed (can be adjusted up/down as planning progresses)",
-    "next_step_required": "Whether another planning step is required after this one",
-    "is_step_revision": "True if this step revises/replaces a previous step",
-    "revises_step_number": "If is_step_revision is true, which step number is being revised",
-    "is_branch_point": "True if this step branches from a previous step to explore alternatives",
-    "branch_from_step": "If is_branch_point is true, which step number is the branching point",
-    "branch_id": "Identifier for the current branch (e.g., 'approach-A', 'microservices-path')",
-    "more_steps_needed": "True if more steps are needed beyond the initial estimate",
+    "step_number": "Current planning step number (starts at 1).",
+    "total_steps": "Estimated number of planning steps; adjust as the plan evolves.",
+    "next_step_required": "Set true when another planning step will follow after this one.",
+    "is_step_revision": "Set true when you are replacing a previously recorded step.",
+    "revises_step_number": "Step number being replaced when revising.",
+    "is_branch_point": "True when this step creates a new branch to explore an alternative path.",
+    "branch_from_step": "If branching, the step number that this branch starts from.",
+    "branch_id": "Name for this branch (e.g. 'approach-A', 'migration-path').",
+    "more_steps_needed": "True when you now expect to add additional steps beyond the prior estimate.",
 }
 
 
@@ -67,12 +64,12 @@ class PlannerRequest(WorkflowRequest):
     next_step_required: bool = Field(..., description=PLANNER_FIELD_DESCRIPTIONS["next_step_required"])
 
     # Optional revision/branching fields (planning-specific)
-    is_step_revision: Optional[bool] = Field(False, description=PLANNER_FIELD_DESCRIPTIONS["is_step_revision"])
-    revises_step_number: Optional[int] = Field(None, description=PLANNER_FIELD_DESCRIPTIONS["revises_step_number"])
-    is_branch_point: Optional[bool] = Field(False, description=PLANNER_FIELD_DESCRIPTIONS["is_branch_point"])
-    branch_from_step: Optional[int] = Field(None, description=PLANNER_FIELD_DESCRIPTIONS["branch_from_step"])
-    branch_id: Optional[str] = Field(None, description=PLANNER_FIELD_DESCRIPTIONS["branch_id"])
-    more_steps_needed: Optional[bool] = Field(False, description=PLANNER_FIELD_DESCRIPTIONS["more_steps_needed"])
+    is_step_revision: bool | None = Field(False, description=PLANNER_FIELD_DESCRIPTIONS["is_step_revision"])
+    revises_step_number: int | None = Field(None, description=PLANNER_FIELD_DESCRIPTIONS["revises_step_number"])
+    is_branch_point: bool | None = Field(False, description=PLANNER_FIELD_DESCRIPTIONS["is_branch_point"])
+    branch_from_step: int | None = Field(None, description=PLANNER_FIELD_DESCRIPTIONS["branch_from_step"])
+    branch_id: str | None = Field(None, description=PLANNER_FIELD_DESCRIPTIONS["branch_id"])
+    more_steps_needed: bool | None = Field(False, description=PLANNER_FIELD_DESCRIPTIONS["more_steps_needed"])
 
     # Exclude all investigation/analysis fields that aren't relevant to planning
     findings: str = Field(
@@ -85,15 +82,13 @@ class PlannerRequest(WorkflowRequest):
     )
     issues_found: list[dict] = Field(default_factory=list, exclude=True, description="Planning doesn't find issues")
     confidence: str = Field(default="planning", exclude=True, description="Planning uses different confidence model")
-    hypothesis: Optional[str] = Field(default=None, exclude=True, description="Planning doesn't use hypothesis")
-    backtrack_from_step: Optional[int] = Field(default=None, exclude=True, description="Planning uses revision instead")
+    hypothesis: str | None = Field(default=None, exclude=True, description="Planning doesn't use hypothesis")
 
     # Exclude other non-planning fields
-    temperature: Optional[float] = Field(default=None, exclude=True)
-    thinking_mode: Optional[str] = Field(default=None, exclude=True)
-    use_websearch: Optional[bool] = Field(default=None, exclude=True)
-    use_assistant_model: Optional[bool] = Field(default=False, exclude=True, description="Planning is self-contained")
-    images: Optional[list] = Field(default=None, exclude=True, description="Planning doesn't use images")
+    temperature: float | None = Field(default=None, exclude=True)
+    thinking_mode: str | None = Field(default=None, exclude=True)
+    use_assistant_model: bool | None = Field(default=False, exclude=True, description="Planning is self-contained")
+    images: list | None = Field(default=None, exclude=True, description="Planning doesn't use images")
 
     @field_validator("step_number")
     @classmethod
@@ -133,27 +128,9 @@ class PlannerTool(WorkflowTool):
 
     def get_description(self) -> str:
         return (
-            "INTERACTIVE SEQUENTIAL PLANNER - Break down complex tasks through step-by-step planning. "
-            "This tool enables you to think sequentially, building plans incrementally with the ability "
-            "to revise, branch, and adapt as understanding deepens.\n\n"
-            "How it works:\n"
-            "- Start with step 1: describe the task/problem to plan\n"
-            "- Continue with subsequent steps, building the plan piece by piece\n"
-            "- Adjust total_steps estimate as you progress\n"
-            "- Revise previous steps when new insights emerge\n"
-            "- Branch into alternative approaches when needed\n"
-            "- Add more steps even after reaching the initial estimate\n\n"
-            "Key features:\n"
-            "- Sequential thinking with full context awareness\n"
-            "- Forced deep reflection for complex plans (≥5 steps) in early stages\n"
-            "- Branching for exploring alternative strategies\n"
-            "- Revision capabilities to update earlier decisions\n"
-            "- Dynamic step count adjustment\n\n"
-            "ENHANCED: For complex plans (≥5 steps), the first 3 steps enforce deep thinking pauses\n"
-            "to prevent surface-level planning and ensure thorough consideration of alternatives,\n"
-            "dependencies, and strategic decisions before moving to tactical details.\n\n"
-            "Perfect for: complex project planning, system design with unknowns, "
-            "migration strategies, architectural decisions, problem decomposition."
+            "Breaks down complex tasks through interactive, sequential planning with revision and branching capabilities. "
+            "Use for complex project planning, system design, migration strategies, and architectural decisions. "
+            "Builds plans incrementally with deep reflection for complex scenarios."
         )
 
     def get_system_prompt(self) -> str:
@@ -184,10 +161,18 @@ class PlannerTool(WorkflowTool):
         """Return the planner-specific request model."""
         return PlannerRequest
 
-    def get_tool_fields(self) -> dict[str, dict[str, Any]]:
-        """Return planning-specific field definitions beyond the standard workflow fields."""
-        return {
-            # Planning-specific optional fields
+    def get_input_schema(self) -> dict[str, Any]:
+        """Generate input schema for planner workflow using override pattern."""
+        from .workflow.schema_builders import WorkflowSchemaBuilder
+
+        # Planner tool-specific field definitions
+        planner_field_overrides = {
+            # Override standard workflow fields that need planning-specific descriptions
+            "step": {
+                "type": "string",
+                "description": PLANNER_FIELD_DESCRIPTIONS["step"],  # Very planning-specific instructions
+            },
+            # NEW planning-specific fields (not in base workflow)
             "is_step_revision": {
                 "type": "boolean",
                 "description": PLANNER_FIELD_DESCRIPTIONS["is_step_revision"],
@@ -216,11 +201,7 @@ class PlannerTool(WorkflowTool):
             },
         }
 
-    def get_input_schema(self) -> dict[str, Any]:
-        """Generate input schema using WorkflowSchemaBuilder with field exclusion."""
-        from .workflow.schema_builders import WorkflowSchemaBuilder
-
-        # Exclude investigation-specific fields that planning doesn't need
+        # Define excluded fields for planner workflow
         excluded_workflow_fields = [
             "findings",  # Planning uses step content instead
             "files_checked",  # Planning doesn't examine files
@@ -229,20 +210,18 @@ class PlannerTool(WorkflowTool):
             "issues_found",  # Planning doesn't find issues
             "confidence",  # Planning uses different confidence model
             "hypothesis",  # Planning doesn't use hypothesis
-            "backtrack_from_step",  # Planning uses revision instead
         ]
 
-        # Exclude common fields that planning doesn't need
         excluded_common_fields = [
             "temperature",  # Planning doesn't need temperature control
             "thinking_mode",  # Planning doesn't need thinking mode
-            "use_websearch",  # Planning doesn't need web search
             "images",  # Planning doesn't use images
-            "files",  # Planning doesn't use files
+            "absolute_file_paths",  # Planning doesn't use file attachments
         ]
 
+        # Build schema with proper field exclusion (following consensus pattern)
         return WorkflowSchemaBuilder.build_schema(
-            tool_specific_fields=self.get_tool_fields(),
+            tool_specific_fields=planner_field_overrides,
             required_fields=[],  # No additional required fields beyond workflow defaults
             model_field_schema=self.get_model_field_schema(),
             auto_mode=self.is_effective_auto_mode(),
@@ -255,7 +234,9 @@ class PlannerTool(WorkflowTool):
     # Abstract Methods - Required Implementation from BaseWorkflowMixin
     # ================================================================================
 
-    def get_required_actions(self, step_number: int, confidence: str, findings: str, total_steps: int) -> list[str]:
+    def get_required_actions(
+        self, step_number: int, confidence: str, findings: str, total_steps: int, request=None
+    ) -> list[str]:
         """Define required actions for each planning phase."""
         if step_number == 1:
             # Initial planning tasks
@@ -491,10 +472,10 @@ class PlannerTool(WorkflowTool):
         # Convert generic status names to planner-specific ones
         tool_name = self.get_name()
         status_mapping = {
-            f"{tool_name}_in_progress": "planning_success",
-            f"pause_for_{tool_name}": f"pause_for_{tool_name}",  # Keep the full tool name for workflow consistency
-            f"{tool_name}_required": f"{tool_name}_required",  # Keep the full tool name for workflow consistency
-            f"{tool_name}_complete": f"{tool_name}_complete",  # Keep the full tool name for workflow consistency
+            f"{tool_name}_in_progress": "planning_in_progress",
+            f"pause_for_{tool_name}": "pause_for_planning",
+            f"{tool_name}_required": "planning_required",
+            f"{tool_name}_complete": "planning_complete",
         }
 
         if response_data["status"] in status_mapping:

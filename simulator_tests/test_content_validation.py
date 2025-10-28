@@ -68,7 +68,7 @@ DATABASE_CONFIG = {
                 "chat",
                 {
                     "prompt": "Analyze this configuration file briefly",
-                    "files": [validation_file],
+                    "absolute_file_paths": [validation_file],
                     "model": "flash",
                 },
             )
@@ -87,7 +87,7 @@ DATABASE_CONFIG = {
                     "chat",
                     {
                         "prompt": "Continue analyzing this configuration file",
-                        "files": [validation_file],  # Same file should be deduplicated
+                        "absolute_file_paths": [validation_file],  # Same file should be deduplicated
                         "continuation_id": thread_id,
                         "model": "flash",
                     },
@@ -104,8 +104,12 @@ DATABASE_CONFIG = {
             response3, _ = self.call_mcp_tool(
                 "codereview",
                 {
-                    "files": [validation_file],
-                    "prompt": "Review this configuration file",
+                    "step": "Review this configuration file for quality and potential issues",
+                    "step_number": 1,
+                    "total_steps": 1,
+                    "next_step_required": False,
+                    "findings": "Starting code review of configuration file",
+                    "relevant_files": [validation_file],
                     "model": "flash",
                 },
             )

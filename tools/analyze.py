@@ -2,7 +2,7 @@
 AnalyzeWorkflow tool - Step-by-step code analysis with systematic investigation
 
 This tool provides a structured workflow for comprehensive code and file analysis.
-It guides Claude through systematic investigation steps with forced pauses between each step
+It guides the CLI agent through systematic investigation steps with forced pauses between each step
 to ensure thorough code examination, pattern identification, and architectural assessment before proceeding.
 The tool supports complex analysis scenarios including architectural review, performance analysis,
 security assessment, and maintainability evaluation.
@@ -35,11 +35,9 @@ logger = logging.getLogger(__name__)
 # Tool-specific field descriptions for analyze workflow
 ANALYZE_WORKFLOW_FIELD_DESCRIPTIONS = {
     "step": (
-        "What to analyze or look for in this step. In step 1, describe what you want to analyze and begin forming "
-        "an analytical approach after thinking carefully about what needs to be examined. Consider code quality, "
-        "performance implications, architectural patterns, and design decisions. Map out the codebase structure, "
-        "understand the business logic, and identify areas requiring deeper analysis. In later steps, continue "
-        "exploring with precision and adapt your understanding as you uncover more insights."
+        "The analysis plan. Step 1: State your strategy, including how you will map the codebase structure, "
+        "understand business logic, and assess code quality, performance implications, and architectural patterns. "
+        "Later steps: Report findings and adapt the approach as new insights emerge."
     ),
     "step_number": (
         "The index of the current step in the analysis sequence, beginning at 1. Each step should build upon or "
@@ -54,44 +52,28 @@ ANALYZE_WORKFLOW_FIELD_DESCRIPTIONS = {
         "analysis is complete and ready for expert validation."
     ),
     "findings": (
-        "Summarize everything discovered in this step about the code being analyzed. Include analysis of architectural "
-        "patterns, design decisions, tech stack assessment, scalability characteristics, performance implications, "
-        "maintainability factors, security posture, and strategic improvement opportunities. Be specific and avoid "
-        "vague language—document what you now know about the codebase and how it affects your assessment. "
-        "IMPORTANT: Document both strengths (good patterns, solid architecture, well-designed components) and "
-        "concerns (tech debt, scalability risks, overengineering, unnecessary complexity). In later steps, confirm "
-        "or update past findings with additional evidence."
+        "Summary of discoveries from this step, including architectural patterns, tech stack assessment, scalability characteristics, "
+        "performance implications, maintainability factors, and strategic improvement opportunities. "
+        "IMPORTANT: Document both strengths (good patterns, solid architecture) and concerns (tech debt, overengineering, unnecessary complexity). "
+        "In later steps, confirm or update past findings with additional evidence."
     ),
     "files_checked": (
-        "List all files (as absolute paths, do not clip or shrink file names) examined during the analysis "
-        "investigation so far. Include even files ruled out or found to be unrelated, as this tracks your "
-        "exploration path."
+        "List all files examined (absolute paths). Include even ruled-out files to track exploration path."
     ),
     "relevant_files": (
-        "Subset of files_checked (as full absolute paths) that contain code directly relevant to the analysis or "
-        "contain significant patterns, architectural decisions, or examples worth highlighting. Only list those that are "
-        "directly tied to important findings, architectural insights, performance characteristics, or strategic "
-        "improvement opportunities. This could include core implementation files, configuration files, or files "
-        "demonstrating key patterns."
+        "Subset of files_checked directly relevant to analysis findings (absolute paths). Include files with "
+        "significant patterns, architectural decisions, or strategic improvement opportunities."
     ),
     "relevant_context": (
-        "List methods, functions, classes, or modules that are central to the analysis findings, in the format "
-        "'ClassName.methodName', 'functionName', or 'module.ClassName'. Prioritize those that demonstrate important "
-        "patterns, represent key architectural decisions, show performance characteristics, or highlight strategic "
-        "improvement opportunities."
-    ),
-    "backtrack_from_step": (
-        "If an earlier finding or assessment needs to be revised or discarded, specify the step number from which to "
-        "start over. Use this to acknowledge investigative dead ends and correct the course."
+        "List methods/functions central to analysis findings, in 'ClassName.methodName' or 'functionName' format. "
+        "Prioritize those demonstrating key patterns, architectural decisions, or improvement opportunities."
     ),
     "images": (
-        "Optional list of absolute paths to architecture diagrams, design documents, or visual references "
-        "that help with analysis context. Only include if they materially assist understanding or assessment."
+        "Optional absolute paths to architecture diagrams or visual references that help with analysis context."
     ),
     "confidence": (
-        "Your confidence level in the current analysis findings: exploring (early investigation), "
-        "low (some insights but more needed), medium (solid understanding), high (comprehensive insights), "
-        "certain (complete analysis ready for expert validation)"
+        "Your confidence in the analysis: exploring, low, medium, high, very_high, almost_certain, or certain. "
+        "'certain' indicates the analysis is complete and ready for validation."
     ),
     "analysis_type": "Type of analysis to perform (architecture, performance, security, quality, general)",
     "output_format": "How to format the output (summary, detailed, actionable)",
@@ -125,11 +107,6 @@ class AnalyzeWorkflowRequest(WorkflowRequest):
         description="Issues or concerns identified during analysis, each with severity level (critical, high, medium, low)",
     )
 
-    # Optional backtracking field
-    backtrack_from_step: Optional[int] = Field(
-        None, description=ANALYZE_WORKFLOW_FIELD_DESCRIPTIONS["backtrack_from_step"]
-    )
-
     # Optional images for visual context
     images: Optional[list[str]] = Field(default=None, description=ANALYZE_WORKFLOW_FIELD_DESCRIPTIONS["images"])
 
@@ -142,8 +119,7 @@ class AnalyzeWorkflowRequest(WorkflowRequest):
         "detailed", description=ANALYZE_WORKFLOW_FIELD_DESCRIPTIONS["output_format"]
     )
 
-    # Keep thinking_mode and use_websearch from original analyze tool
-    # temperature is inherited from WorkflowRequest
+    # Keep thinking_mode from original analyze tool; temperature is inherited from WorkflowRequest
 
     @model_validator(mode="after")
     def validate_step_one_requirements(self):
@@ -174,23 +150,9 @@ class AnalyzeTool(WorkflowTool):
 
     def get_description(self) -> str:
         return (
-            "COMPREHENSIVE ANALYSIS WORKFLOW - Step-by-step code analysis with expert validation. "
-            "This tool guides you through a systematic investigation process where you:\\n\\n"
-            "1. Start with step 1: describe your analysis investigation plan\\n"
-            "2. STOP and investigate code structure, patterns, and architectural decisions\\n"
-            "3. Report findings in step 2 with concrete evidence from actual code analysis\\n"
-            "4. Continue investigating between each step\\n"
-            "5. Track findings, relevant files, and insights throughout\\n"
-            "6. Update assessments as understanding evolves\\n"
-            "7. Once investigation is complete, always receive expert validation\\n\\n"
-            "IMPORTANT: This tool enforces investigation between steps:\\n"
-            "- After each call, you MUST investigate before calling again\\n"
-            "- Each step must include NEW evidence from code examination\\n"
-            "- No recursive calls without actual investigation work\\n"
-            "- The tool will specify which step number to use next\\n"
-            "- Follow the required_actions list for investigation guidance\\n\\n"
-            "Perfect for: comprehensive code analysis, architectural assessment, performance evaluation, "
-            "security analysis, maintainability review, pattern detection, strategic planning."
+            "Performs comprehensive code analysis with systematic investigation and expert validation. "
+            "Use for architecture, performance, maintainability, and pattern analysis. "
+            "Guides through structured code review and strategic planning."
         )
 
     def get_system_prompt(self) -> str:
@@ -252,13 +214,8 @@ class AnalyzeTool(WorkflowTool):
             },
             "confidence": {
                 "type": "string",
-                "enum": ["exploring", "low", "medium", "high", "certain"],
+                "enum": ["exploring", "low", "medium", "high", "very_high", "almost_certain", "certain"],
                 "description": ANALYZE_WORKFLOW_FIELD_DESCRIPTIONS["confidence"],
-            },
-            "backtrack_from_step": {
-                "type": "integer",
-                "minimum": 1,
-                "description": ANALYZE_WORKFLOW_FIELD_DESCRIPTIONS["backtrack_from_step"],
             },
             "images": {
                 "type": "array",
@@ -293,7 +250,9 @@ class AnalyzeTool(WorkflowTool):
             excluded_workflow_fields=list(excluded_fields),
         )
 
-    def get_required_actions(self, step_number: int, confidence: str, findings: str, total_steps: int) -> list[str]:
+    def get_required_actions(
+        self, step_number: int, confidence: str, findings: str, total_steps: int, request=None
+    ) -> list[str]:
         """Define required actions for each investigation phase."""
         if step_number == 1:
             # Initial analysis investigation tasks
@@ -348,7 +307,7 @@ class AnalyzeTool(WorkflowTool):
         # Add investigation summary
         investigation_summary = self._build_analysis_summary(consolidated_findings)
         context_parts.append(
-            f"\\n=== CLAUDE'S ANALYSIS INVESTIGATION ===\\n{investigation_summary}\\n=== END INVESTIGATION ==="
+            f"\\n=== AGENT'S ANALYSIS INVESTIGATION ===\\n{investigation_summary}\\n=== END INVESTIGATION ==="
         )
 
         # Add analysis configuration context if available
@@ -477,7 +436,7 @@ class AnalyzeTool(WorkflowTool):
 
     def get_skip_reason(self) -> str:
         """Analyze-specific skip reason."""
-        return "Claude completed comprehensive analysis"
+        return "Completed comprehensive analysis locally"
 
     def get_skip_expert_analysis_status(self) -> str:
         """Analyze-specific expert analysis skip status."""

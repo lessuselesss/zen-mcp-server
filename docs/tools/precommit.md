@@ -13,19 +13,26 @@ The `precommit` tool provides thorough validation of git changes before committi
 The precommit tool implements a **structured workflow** for comprehensive change validation:
 
 **Investigation Phase (Claude-Led):**
-1. **Step 1**: Claude describes the validation plan and begins analyzing git status across repositories
-2. **Step 2+**: Claude examines changes, diffs, dependencies, and potential impacts
-3. **Throughout**: Claude tracks findings, relevant files, issues, and confidence levels
-4. **Completion**: Once investigation is thorough, Claude signals completion
+1. **Step 1**: Claude states validation strategy using direct statements ("I will examine..." not "Let me examine...")
+2. **Step 2**: Claude examines changes, diffs, dependencies with MANDATORY deeper investigation
+3. **Step 3+**: Claude performs final verification (minimum 3 steps enforced)
+4. **Throughout**: Claude tracks findings, relevant files, and issues with CRITICAL step validation
+5. **Completion**: Only after minimum steps, Claude signals completion and creates changeset file
+
+**For Continuations**: When using `continuation_id` with external validation, Claude will immediately gather git changes and proceed to expert analysis without minimum step requirements.
 
 **Expert Validation Phase:**
-After Claude completes the investigation (unless confidence is **certain**):
+After Claude completes the investigation (unless precommit_type is **internal**):
 - Complete summary of all changes and their context
 - Potential issues and regressions identified
 - Requirement compliance assessment
 - Final recommendations for safe commit
 
-**Special Note**: If you want Claude to perform the entire pre-commit validation without calling another model, you can include "don't use any other model" in your prompt, and Claude will complete the full workflow independently.
+**Special Notes**: 
+- Default validation type is **external** (uses expert model for additional review)
+- To skip expert validation, explicitly request "don't use any other model" or set precommit_type to "internal"
+- **CRITICAL**: Minimum 3 steps are enforced - tool will prevent setting `next_step_required=false` before final step
+- **MANDATORY**: Changeset file (zen_precommit.changeset) must be created for external validation
 
 ## Model Recommendation
 
@@ -87,8 +94,8 @@ Then it shared the changes and relevant code with Gemini 2.5 Pro - the following
 
   🚨 [HIGH PRIORITY] Critical Issue Found
 
-  Inconsistent Provider Handling in tools/base.py
-  - Location: tools/base.py line ~1833 in _create_continuation_offer_response method
+  Inconsistent Provider Handling in tools/shared/base_tool.py
+  - Location: tools/shared/base_tool.py inside _create_continuation_offer_response
   - Problem: The defensive provider handling pattern was applied in 2 locations but missed a 3rd location
   - Impact: Risk of AttributeError: 'str' object has no attribute 'get_provider_type' in continuation scenarios
   - Fix Required: Apply the same defensive pattern to the missed location
@@ -118,24 +125,22 @@ Use zen and perform a thorough precommit ensuring there aren't any new regressio
 ## Tool Parameters
 
 **Workflow Investigation Parameters (used during step-by-step process):**
-- `step`: Current investigation step description (required for each step)
-- `step_number`: Current step number in validation sequence (required)
-- `total_steps`: Estimated total investigation steps (adjustable)
-- `next_step_required`: Whether another investigation step is needed
-- `findings`: Discoveries and evidence collected in this step (required)
+- `step`: Technical brief to another engineer using direct statements (required, FORBIDDEN: large code snippets)
+- `step_number`: Current step number in validation sequence (required, starts at 1)
+- `total_steps`: Estimated total investigation steps (minimum 3 enforced)
+- `next_step_required`: Whether another investigation step is needed (CRITICAL: must be true until final step)
+- `findings`: Specific discoveries and evidence from actual investigation (required, no vague language)
 - `files_checked`: All files examined during investigation
 - `relevant_files`: Files directly relevant to the changes
 - `relevant_context`: Methods/functions/classes affected by changes
 - `issues_found`: Issues identified with severity levels
-- `confidence`: Confidence level in validation completeness (exploring/low/medium/high/certain)
-- `backtrack_from_step`: Step number to backtrack from (for revisions)
-- `hypothesis`: Current assessment of change safety and completeness
+- `precommit_type`: Type of validation to perform (external/internal, default: external - ALWAYS use external unless explicitly told otherwise)
 - `images`: Screenshots of requirements, design mockups for validation
 
 **Initial Configuration (used in step 1):**
-- `path`: Starting directory to search for repos (default: current directory, absolute path required)
+- `path`: Starting directory to search for repos (REQUIRED for step 1, must be absolute path)
 - `prompt`: The original user request description for the changes (required for context)
-- `model`: auto|pro|flash|o3|o3-mini|o4-mini|gpt4.1 (default: server default)
+- `model`: auto|pro|flash|flash-2.0|flashlite|o3|o3-mini|o4-mini|gpt4.1|gpt5|gpt5-mini|gpt5-nano (default: server default)
 - `compare_to`: Compare against a branch/tag instead of local changes (optional)
 - `severity_filter`: critical|high|medium|low|all (default: all)
 - `include_staged`: Include staged changes in the review (default: true)
@@ -143,7 +148,6 @@ Use zen and perform a thorough precommit ensuring there aren't any new regressio
 - `focus_on`: Specific aspects to focus on
 - `temperature`: Temperature for response (default: 0.2)
 - `thinking_mode`: minimal|low|medium|high|max (default: medium, Gemini only)
-- `use_websearch`: Enable web search for best practices (default: true)
 - `use_assistant_model`: Whether to use expert validation phase (default: true, set to false to use Claude only)
 - `continuation_id`: Continue previous validation discussions
 

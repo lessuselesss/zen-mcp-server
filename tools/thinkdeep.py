@@ -34,98 +34,63 @@ class ThinkDeepWorkflowRequest(WorkflowRequest):
     """Request model for thinkdeep workflow tool with comprehensive investigation capabilities"""
 
     # Core workflow parameters
-    step: str = Field(description="Current work step content and findings from your overall work")
-    step_number: int = Field(description="Current step number in the work sequence (starts at 1)", ge=1)
-    total_steps: int = Field(description="Estimated total steps needed to complete the work", ge=1)
-    next_step_required: bool = Field(description="Whether another work step is needed after this one")
+    step: str = Field(description="Current work step content and findings")
+    step_number: int = Field(description="Current step number (starts at 1)", ge=1)
+    total_steps: int = Field(description="Estimated total steps needed", ge=1)
+    next_step_required: bool = Field(description="Whether another step is needed")
     findings: str = Field(
-        description="Summarize everything discovered in this step about the problem/goal. Include new insights, "
-        "connections made, implications considered, alternative approaches, potential issues identified, "
-        "and evidence from thinking. Be specific and avoid vague language—document what you now know "
-        "and how it affects your hypothesis or understanding. IMPORTANT: If you find compelling evidence "
-        "that contradicts earlier assumptions, document this clearly. In later steps, confirm or update "
-        "past findings with additional reasoning."
+        description="Discoveries: insights, connections, implications, evidence. "
+        "Document contradictions to earlier assumptions. Update past findings."
     )
 
     # Investigation tracking
     files_checked: list[str] = Field(
         default_factory=list,
-        description="List all files (as absolute paths) examined during the investigation so far. "
-        "Include even files ruled out or found unrelated, as this tracks your exploration path.",
+        description="All files examined (absolute paths). Include ruled-out files.",
     )
     relevant_files: list[str] = Field(
         default_factory=list,
-        description="Subset of files_checked (as full absolute paths) that contain information directly "
-        "relevant to the problem or goal. Only list those directly tied to the root cause, "
-        "solution, or key insights. This could include the source of the issue, documentation "
-        "that explains the expected behavior, configuration files that affect the outcome, or "
-        "examples that illustrate the concept being analyzed.",
+        description="Files relevant to problem/goal (absolute paths). Include root cause, solution, key insights.",
     )
     relevant_context: list[str] = Field(
         default_factory=list,
-        description="Key concepts, methods, or principles that are central to the thinking analysis, "
-        "in the format 'concept_name' or 'ClassName.methodName'. Focus on those that drive "
-        "the core insights, represent critical decision points, or define the scope of the analysis.",
+        description="Key concepts/methods: 'concept_name' or 'ClassName.methodName'. Focus on core insights, decision points.",
     )
     hypothesis: Optional[str] = Field(
         default=None,
-        description="Current theory or understanding about the problem/goal based on evidence gathered. "
-        "This should be a concrete theory that can be validated or refined through further analysis. "
-        "You are encouraged to revise or abandon hypotheses in later steps based on new evidence.",
+        description="Current theory based on evidence. Revise in later steps.",
     )
 
     # Analysis metadata
     issues_found: list[dict] = Field(
         default_factory=list,
-        description="Issues identified during work with severity levels - each as a dict with "
-        "'severity' (critical, high, medium, low) and 'description' fields.",
+        description="Issues with dict: 'severity' (critical/high/medium/low), 'description'.",
     )
     confidence: str = Field(
         default="low",
-        description="Indicate your current confidence in the analysis. Use: 'exploring' (starting analysis), "
-        "'low' (early thinking), 'medium' (some insights gained), 'high' (strong understanding), "
-        "'certain' (only when the analysis is complete and conclusions are definitive). "
-        "Do NOT use 'certain' unless the thinking is comprehensively complete, use 'high' instead when in doubt. "
-        "Using 'certain' prevents additional expert analysis to save time and money.",
-    )
-
-    # Advanced workflow features
-    backtrack_from_step: Optional[int] = Field(
-        default=None,
-        description="If an earlier finding or hypothesis needs to be revised or discarded, "
-        "specify the step number from which to start over. Use this to acknowledge analytical "
-        "dead ends and correct the course.",
-        ge=1,
+        description="exploring/low/medium/high/very_high/almost_certain/certain. CRITICAL: 'certain' PREVENTS external validation.",
     )
 
     # Expert analysis configuration - keep these fields available for configuring the final assistant model
     # in expert analysis (commented out exclude=True)
     temperature: Optional[float] = Field(
         default=None,
-        description="Temperature for creative thinking (0-1, default 0.7)",
+        description="Creative thinking temp (0-1, default 0.7)",
         ge=0.0,
         le=1.0,
-        # exclude=True  # Excluded from MCP schema but available for internal use
     )
     thinking_mode: Optional[str] = Field(
         default=None,
-        description="Thinking depth: minimal (0.5% of model max), low (8%), medium (33%), high (67%), max (100% of model max). Defaults to 'high' if not specified.",
-        # exclude=True  # Excluded from MCP schema but available for internal use
+        description="Depth: minimal/low/medium/high/max. Default 'high'.",
     )
-    use_websearch: Optional[bool] = Field(
-        default=None,
-        description="Enable web search for documentation, best practices, and current information. Particularly useful for: brainstorming sessions, architectural design discussions, exploring industry best practices, working with specific frameworks/technologies, researching solutions to complex problems, or when current documentation and community insights would enhance the analysis.",
-        # exclude=True  # Excluded from MCP schema but available for internal use
-    )
-
     # Context files and investigation scope
     problem_context: Optional[str] = Field(
         default=None,
-        description="Provide additional context about the problem or goal. Be as expressive as possible. More information will be very helpful for the analysis.",
+        description="Additional context about problem/goal. Be expressive.",
     )
     focus_areas: Optional[list[str]] = Field(
         default=None,
-        description="Specific aspects to focus on (architecture, performance, security, etc.)",
+        description="Focus aspects (architecture, performance, security, etc.)",
     )
 
 
@@ -139,15 +104,9 @@ class ThinkDeepTool(WorkflowTool):
 
     name = "thinkdeep"
     description = (
-        "COMPREHENSIVE INVESTIGATION & REASONING - Multi-stage workflow for complex problem analysis. "
-        "Use this when you need structured evidence-based investigation, systematic hypothesis testing, or expert validation. "
-        "Perfect for: architecture decisions, complex bugs, performance challenges, security analysis. "
-        "Provides methodical investigation with assumption validation, alternative solution exploration, and rigorous analysis. "
-        "IMPORTANT: Choose the appropriate mode based on task complexity - 'low' for quick investigation, "
-        "'medium' for standard problems, 'high' for complex issues (default), 'max' for extremely complex "
-        "challenges requiring exhaustive investigation. When in doubt, err on the side of a higher mode for thorough "
-        "systematic analysis and expert validation. Note: If you're not currently using a top-tier model such as Opus 4 or above, "
-        "these tools can provide enhanced capabilities."
+        "Performs multi-stage investigation and reasoning for complex problem analysis. "
+        "Use for architecture decisions, complex bugs, performance challenges, and security analysis. "
+        "Provides systematic hypothesis testing, evidence-based investigation, and expert validation."
     )
 
     def __init__(self):
@@ -182,12 +141,12 @@ class ThinkDeepTool(WorkflowTool):
         thinkdeep_field_overrides = {
             "problem_context": {
                 "type": "string",
-                "description": "Provide additional context about the problem or goal. Be as expressive as possible. More information will be very helpful for the analysis.",
+                "description": "Additional context about problem/goal. Be expressive.",
             },
             "focus_areas": {
                 "type": "array",
                 "items": {"type": "string"},
-                "description": "Specific aspects to focus on (architecture, performance, security, etc.)",
+                "description": "Focus aspects (architecture, performance, security, etc.)",
             },
         }
 
@@ -228,11 +187,6 @@ class ThinkDeepTool(WorkflowTool):
             self.stored_request_params["thinking_mode"] = request.thinking_mode
         except AttributeError:
             self.stored_request_params["thinking_mode"] = None
-
-        try:
-            self.stored_request_params["use_websearch"] = request.use_websearch
-        except AttributeError:
-            self.stored_request_params["use_websearch"] = None
 
         # Add thinking-specific context to response
         response_data.update(
@@ -277,7 +231,7 @@ class ThinkDeepTool(WorkflowTool):
 
     def should_skip_expert_analysis(self, request, consolidated_findings) -> bool:
         """
-        ThinkDeep tool skips expert analysis when Claude has "certain" confidence.
+        ThinkDeep tool skips expert analysis when the CLI agent has "certain" confidence.
         """
         return request.confidence == "certain" and not request.next_step_required
 
@@ -299,7 +253,7 @@ class ThinkDeepTool(WorkflowTool):
 
     def get_skip_reason(self) -> str:
         """Reason for skipping expert analysis."""
-        return "Claude expressed certain confidence in the deep thinking analysis - no additional validation needed"
+        return "Expressed 'certain' confidence in the deep thinking analysis - no additional validation needed"
 
     def get_completion_message(self) -> str:
         """Message for completion without expert analysis."""
@@ -378,16 +332,6 @@ but also acknowledge strong insights and valid conclusions.
             pass
         return super().get_request_thinking_mode(request)
 
-    def get_request_use_websearch(self, request) -> bool:
-        """Use stored use_websearch from initial request."""
-        try:
-            stored_params = self.stored_request_params
-            if stored_params and stored_params.get("use_websearch") is not None:
-                return stored_params["use_websearch"]
-        except AttributeError:
-            pass
-        return super().get_request_use_websearch(request)
-
     def _get_problem_context(self, request) -> str:
         """Get problem context from request. Override for custom context handling."""
         try:
@@ -402,7 +346,9 @@ but also acknowledge strong insights and valid conclusions.
         except AttributeError:
             return ["comprehensive analysis"]
 
-    def get_required_actions(self, step_number: int, confidence: str, findings: str, total_steps: int) -> list[str]:
+    def get_required_actions(
+        self, step_number: int, confidence: str, findings: str, total_steps: int, request=None
+    ) -> list[str]:
         """
         Return required actions for the current thinking step.
         """
@@ -435,9 +381,25 @@ but also acknowledge strong insights and valid conclusions.
         elif confidence == "high":
             actions.extend(
                 [
+                    "Refine and validate key findings",
+                    "Explore edge cases and limitations",
+                    "Document assumptions and trade-offs",
+                ]
+            )
+        elif confidence == "very_high":
+            actions.extend(
+                [
                     "Synthesize findings into cohesive recommendations",
-                    "Validate conclusions against evidence",
-                    "Prepare for expert analysis",
+                    "Validate conclusions against all evidence",
+                    "Prepare comprehensive implementation guidance",
+                ]
+            )
+        elif confidence == "almost_certain":
+            actions.extend(
+                [
+                    "Finalize recommendations with high confidence",
+                    "Document any remaining minor uncertainties",
+                    "Prepare for expert analysis or implementation",
                 ]
             )
         else:  # certain
@@ -516,10 +478,20 @@ but also acknowledge strong insights and valid conclusions.
                     f"Your thinking analysis confidence is CERTAIN. Consider if you truly need step {next_step_number} "
                     f"or if you should complete the analysis now with expert validation."
                 )
+            elif request.confidence == "almost_certain":
+                guidance = (
+                    f"Your thinking analysis confidence is ALMOST_CERTAIN. For step {next_step_number}, consider: "
+                    f"finalizing recommendations, documenting any minor uncertainties, or preparing for implementation."
+                )
+            elif request.confidence == "very_high":
+                guidance = (
+                    f"Your thinking analysis confidence is VERY_HIGH. For step {next_step_number}, consider: "
+                    f"synthesis of all findings, comprehensive validation, or creating implementation roadmap."
+                )
             elif request.confidence == "high":
                 guidance = (
                     f"Your thinking analysis confidence is HIGH. For step {next_step_number}, consider: "
-                    f"validation of conclusions, stress-testing assumptions, or exploring edge cases."
+                    f"exploring edge cases, documenting trade-offs, or stress-testing key assumptions."
                 )
             elif request.confidence == "medium":
                 guidance = (

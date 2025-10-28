@@ -2,9 +2,9 @@
 Base class for workflow MCP tools.
 
 Workflow tools follow a multi-step pattern:
-1. Claude calls tool with work step data
+1. CLI calls tool with work step data
 2. Tool tracks findings and progress
-3. Tool forces Claude to pause and investigate between steps
+3. Tool forces the CLI to pause and investigate between steps
 4. Once work is complete, tool calls external AI model for expert analysis
 5. Tool returns structured response combining investigation + expert analysis
 
@@ -76,7 +76,7 @@ class WorkflowTool(BaseTool, BaseWorkflowMixin):
         Workflow tools automatically get all standard workflow fields:
         - step, step_number, total_steps, next_step_required
         - findings, files_checked, relevant_files, relevant_context
-        - issues_found, confidence, hypothesis, backtrack_from_step
+        - issues_found, confidence, hypothesis
         - plus common fields (model, temperature, etc.)
 
         Override this method to add additional tool-specific fields.
@@ -110,6 +110,21 @@ class WorkflowTool(BaseTool, BaseWorkflowMixin):
         """
         return []
 
+    def get_annotations(self) -> Optional[dict[str, Any]]:
+        """
+        Return tool annotations. Workflow tools are read-only by default.
+
+        All workflow tools perform analysis and investigation without modifying
+        the environment. They may call external AI models for expert analysis,
+        but they don't write files or make system changes.
+
+        Override this method if your workflow tool needs different annotations.
+
+        Returns:
+            Dictionary with readOnlyHint set to True
+        """
+        return {"readOnlyHint": True}
+
     def get_input_schema(self) -> dict[str, Any]:
         """
         Generate the complete input schema using SchemaBuilder.
@@ -124,12 +139,16 @@ class WorkflowTool(BaseTool, BaseWorkflowMixin):
         Returns:
             Complete JSON schema for the workflow tool
         """
+        requires_model = self.requires_model()
+        model_field_schema = self.get_model_field_schema() if requires_model else None
+        auto_mode = self.is_effective_auto_mode() if requires_model else False
         return WorkflowSchemaBuilder.build_schema(
             tool_specific_fields=self.get_tool_fields(),
             required_fields=self.get_required_fields(),
-            model_field_schema=self.get_model_field_schema(),
-            auto_mode=self.is_effective_auto_mode(),
+            model_field_schema=model_field_schema,
+            auto_mode=auto_mode,
             tool_name=self.get_name(),
+            require_model=requires_model,
         )
 
     def get_workflow_request_model(self):
@@ -147,7 +166,7 @@ class WorkflowTool(BaseTool, BaseWorkflowMixin):
         """
         Default implementation - workflow tools typically don't need predefined steps.
 
-        The workflow is driven by Claude's investigation process rather than
+        The workflow is driven by the CLI's investigation process rather than
         predefined steps. Override this if your tool needs specific step guidance.
         """
         return []
@@ -375,12 +394,42 @@ class WorkflowTool(BaseTool, BaseWorkflowMixin):
         """Get status for skipped expert analysis. Override for tool-specific status."""
         return "skipped_by_tool_design"
 
+    def is_continuation_workflow(self, request) -> bool:
+        """
+        Check if this is a continuation workflow that should skip multi-step investigation.
+
+        When continuation_id is provided, the workflow typically continues from a previous
+        conversation and should go directly to expert analysis rather than starting a new
+        multi-step investigation.
+
+        Args:
+            request: The workflow request object
+
+        Returns:
+            True if this is a continuation that should skip multi-step workflow
+        """
+        continuation_id = self.get_request_continuation_id(request)
+        return bool(continuation_id)
+
     # Abstract methods that must be implemented by specific workflow tools
     # (These are inherited from BaseWorkflowMixin and must be implemented)
 
     @abstractmethod
-    def get_required_actions(self, step_number: int, confidence: str, findings: str, total_steps: int) -> list[str]:
-        """Define required actions for each work phase."""
+    def get_required_actions(
+        self, step_number: int, confidence: str, findings: str, total_steps: int, request=None
+    ) -> list[str]:
+        """Define required actions for each work phase.
+
+        Args:
+            step_number: Current step number
+            confidence: Current confidence level
+            findings: Current findings text
+            total_steps: Total estimated steps
+            request: Optional request object for continuation-aware decisions
+
+        Returns:
+            List of required actions for the current step
+        """
         pass
 
     @abstractmethod

@@ -2,10 +2,9 @@
 TestGen Workflow tool - Step-by-step test generation with expert validation
 
 This tool provides a structured workflow for comprehensive test generation.
-It guides Claude through systematic investigation steps with forced pauses between each step
+It guides the CLI agent through systematic investigation steps with forced pauses between each step
 to ensure thorough code examination, test planning, and pattern identification before proceeding.
-The tool supports backtracking, finding updates, and expert analysis integration for
-comprehensive test suite generation.
+The tool supports finding updates and expert analysis integration for comprehensive test suite generation.
 
 Key features:
 - Step-by-step test generation workflow with progress tracking
@@ -35,62 +34,24 @@ logger = logging.getLogger(__name__)
 # Tool-specific field descriptions for test generation workflow
 TESTGEN_WORKFLOW_FIELD_DESCRIPTIONS = {
     "step": (
-        "What to analyze or look for in this step. In step 1, describe what you want to test and begin forming an "
-        "analytical approach after thinking carefully about what needs to be examined. Consider code structure, "
-        "business logic, critical paths, edge cases, and potential failure modes. Map out the codebase structure, "
-        "understand the functionality, and identify areas requiring test coverage. In later steps, continue exploring "
-        "with precision and adapt your understanding as you uncover more insights about testable behaviors."
+        "Test plan for this step. Step 1: outline how you'll analyse structure, business logic, critical paths, and edge cases. Later steps: record findings and new scenarios as they emerge."
     ),
-    "step_number": (
-        "The index of the current step in the test generation sequence, beginning at 1. Each step should build upon or "
-        "revise the previous one."
-    ),
-    "total_steps": (
-        "Your current estimate for how many steps will be needed to complete the test generation analysis. "
-        "Adjust as new findings emerge."
-    ),
-    "next_step_required": (
-        "Set to true if you plan to continue the investigation with another step. False means you believe the "
-        "test generation analysis is complete and ready for expert validation."
-    ),
-    "findings": (
-        "Summarize everything discovered in this step about the code being tested. Include analysis of functionality, "
-        "critical paths, edge cases, boundary conditions, error handling, async behavior, state management, and "
-        "integration points. Be specific and avoid vague language—document what you now know about the code and "
-        "what test scenarios are needed. IMPORTANT: Document both the happy paths and potential failure modes. "
-        "Identify existing test patterns if examples were provided. In later steps, confirm or update past findings "
-        "with additional evidence."
-    ),
-    "files_checked": (
-        "List all files (as absolute paths, do not clip or shrink file names) examined during the test generation "
-        "investigation so far. Include even files ruled out or found to be unrelated, as this tracks your "
-        "exploration path."
-    ),
-    "relevant_files": (
-        "Subset of files_checked (as full absolute paths) that contain code directly needing tests or are essential "
-        "for understanding test requirements. Only list those that are directly tied to the functionality being tested. "
-        "This could include implementation files, interfaces, dependencies, or existing test examples."
-    ),
-    "relevant_context": (
-        "List methods, functions, classes, or modules that need test coverage, in the format "
-        "'ClassName.methodName', 'functionName', or 'module.ClassName'. Prioritize critical business logic, "
-        "public APIs, complex algorithms, and error-prone code paths."
-    ),
+    "step_number": "Current test-generation step (starts at 1) — each step should build on prior work.",
+    "total_steps": "Estimated number of steps needed for test planning; adjust as new scenarios appear.",
+    "next_step_required": "True while more investigation or planning remains; set False when test planning is ready for expert validation.",
+    "findings": "Summarise functionality, critical paths, edge cases, boundary conditions, error handling, and existing test patterns. Cover both happy and failure paths.",
+    "files_checked": "Absolute paths of every file examined, including those ruled out.",
+    "relevant_files": "Absolute paths of code that requires new or updated tests (implementation, dependencies, existing test fixtures).",
+    "relevant_context": "Functions/methods needing coverage (e.g. 'Class.method', 'function_name'), with emphasis on critical paths and error-prone code.",
     "confidence": (
         "Indicate your current confidence in the test generation assessment. Use: 'exploring' (starting analysis), "
-        "'low' (early investigation), 'medium' (some patterns identified), 'high' (strong understanding), 'certain' "
-        "(only when the test plan is thoroughly complete and all test scenarios are identified). Do NOT use 'certain' "
-        "unless the test generation analysis is comprehensively complete, use 'high' instead not 100% sure. Using "
-        "'certain' prevents additional expert analysis."
+        "'low' (early investigation), 'medium' (some patterns identified), 'high' (strong understanding), "
+        "'very_high' (very strong understanding), 'almost_certain' (nearly complete test plan), 'certain' "
+        "(100% confidence - test plan is thoroughly complete and all test scenarios are identified with no need for external model validation). "
+        "Do NOT use 'certain' unless the test generation analysis is comprehensively complete, use 'very_high' or 'almost_certain' instead if not 100% sure. "
+        "Using 'certain' means you have complete confidence locally and prevents external model validation."
     ),
-    "backtrack_from_step": (
-        "If an earlier finding or assessment needs to be revised or discarded, specify the step number from which to "
-        "start over. Use this to acknowledge investigative dead ends and correct the course."
-    ),
-    "images": (
-        "Optional list of absolute paths to architecture diagrams, flow charts, or visual documentation that help "
-        "understand the code structure and test requirements. Only include if they materially assist test planning."
-    ),
+    "images": "Optional absolute paths to diagrams or visuals that clarify the system under test.",
 }
 
 
@@ -116,18 +77,12 @@ class TestGenRequest(WorkflowRequest):
     )
     confidence: Optional[str] = Field("low", description=TESTGEN_WORKFLOW_FIELD_DESCRIPTIONS["confidence"])
 
-    # Optional backtracking field
-    backtrack_from_step: Optional[int] = Field(
-        None, description=TESTGEN_WORKFLOW_FIELD_DESCRIPTIONS["backtrack_from_step"]
-    )
-
     # Optional images for visual context
     images: Optional[list[str]] = Field(default=None, description=TESTGEN_WORKFLOW_FIELD_DESCRIPTIONS["images"])
 
     # Override inherited fields to exclude them from schema (except model which needs to be available)
     temperature: Optional[float] = Field(default=None, exclude=True)
     thinking_mode: Optional[str] = Field(default=None, exclude=True)
-    use_websearch: Optional[bool] = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def validate_step_one_requirements(self):
@@ -158,18 +113,9 @@ class TestGenTool(WorkflowTool):
 
     def get_description(self) -> str:
         return (
-            "COMPREHENSIVE TEST GENERATION - Creates thorough test suites with edge case coverage. "
-            "Use this when you need to generate tests for code, create test scaffolding, or improve test coverage. "
-            "BE SPECIFIC about scope: target specific functions/classes/modules rather than testing everything. "
-            "Examples: 'Generate tests for User.login() method', 'Test payment processing validation', "
-            "'Create tests for authentication error handling'. If user request is vague, either ask for "
-            "clarification about specific components to test, or make focused scope decisions and explain them. "
-            "Analyzes code paths, identifies realistic failure modes, and generates framework-specific tests. "
-            "Supports test pattern following when examples are provided. Choose thinking_mode based on "
-            "code complexity: 'low' for simple functions, 'medium' for standard modules (default), "
-            "'high' for complex systems with many interactions, 'max' for critical systems requiring "
-            "exhaustive test coverage. Note: If you're not currently using a top-tier model such as "
-            "Opus 4 or above, these tools can provide enhanced capabilities."
+            "Creates comprehensive test suites with edge case coverage for specific functions, classes, or modules. "
+            "Analyzes code paths, identifies failure modes, and generates framework-specific tests. "
+            "Be specific about scope - target particular components rather than testing everything."
         )
 
     def get_system_prompt(self) -> str:
@@ -228,13 +174,8 @@ class TestGenTool(WorkflowTool):
             },
             "confidence": {
                 "type": "string",
-                "enum": ["exploring", "low", "medium", "high", "certain"],
+                "enum": ["exploring", "low", "medium", "high", "very_high", "almost_certain", "certain"],
                 "description": TESTGEN_WORKFLOW_FIELD_DESCRIPTIONS["confidence"],
-            },
-            "backtrack_from_step": {
-                "type": "integer",
-                "minimum": 1,
-                "description": TESTGEN_WORKFLOW_FIELD_DESCRIPTIONS["backtrack_from_step"],
             },
             "images": {
                 "type": "array",
@@ -251,7 +192,9 @@ class TestGenTool(WorkflowTool):
             tool_name=self.get_name(),
         )
 
-    def get_required_actions(self, step_number: int, confidence: str, findings: str, total_steps: int) -> list[str]:
+    def get_required_actions(
+        self, step_number: int, confidence: str, findings: str, total_steps: int, request=None
+    ) -> list[str]:
         """Define required actions for each investigation phase."""
         if step_number == 1:
             # Initial test generation investigation tasks
@@ -309,26 +252,26 @@ class TestGenTool(WorkflowTool):
     def prepare_expert_analysis_context(self, consolidated_findings) -> str:
         """Prepare context for external model call for test generation validation."""
         context_parts = [
-            f"=== TEST GENERATION REQUEST ===\\n{self.initial_request or 'Test generation workflow initiated'}\\n=== END REQUEST ==="
+            f"=== TEST GENERATION REQUEST ===\n{self.initial_request or 'Test generation workflow initiated'}\n=== END REQUEST ==="
         ]
 
         # Add investigation summary
         investigation_summary = self._build_test_generation_summary(consolidated_findings)
         context_parts.append(
-            f"\\n=== CLAUDE'S TEST PLANNING INVESTIGATION ===\\n{investigation_summary}\\n=== END INVESTIGATION ==="
+            f"\n=== AGENT'S TEST PLANNING INVESTIGATION ===\n{investigation_summary}\n=== END INVESTIGATION ==="
         )
 
         # Add relevant code elements if available
         if consolidated_findings.relevant_context:
-            methods_text = "\\n".join(f"- {method}" for method in consolidated_findings.relevant_context)
-            context_parts.append(f"\\n=== CODE ELEMENTS TO TEST ===\\n{methods_text}\\n=== END CODE ELEMENTS ===")
+            methods_text = "\n".join(f"- {method}" for method in consolidated_findings.relevant_context)
+            context_parts.append(f"\n=== CODE ELEMENTS TO TEST ===\n{methods_text}\n=== END CODE ELEMENTS ===")
 
         # Add images if available
         if consolidated_findings.images:
-            images_text = "\\n".join(f"- {img}" for img in consolidated_findings.images)
-            context_parts.append(f"\\n=== VISUAL DOCUMENTATION ===\\n{images_text}\\n=== END VISUAL DOCUMENTATION ===")
+            images_text = "\n".join(f"- {img}" for img in consolidated_findings.images)
+            context_parts.append(f"\n=== VISUAL DOCUMENTATION ===\n{images_text}\n=== END VISUAL DOCUMENTATION ===")
 
-        return "\\n".join(context_parts)
+        return "\n".join(context_parts)
 
     def _build_test_generation_summary(self, consolidated_findings) -> str:
         """Prepare a comprehensive summary of the test generation investigation."""
@@ -388,7 +331,7 @@ class TestGenTool(WorkflowTool):
 
     def should_skip_expert_analysis(self, request, consolidated_findings) -> bool:
         """
-        Test generation workflow skips expert analysis when Claude has "certain" confidence.
+        Test generation workflow skips expert analysis when the CLI agent has "certain" confidence.
         """
         return request.confidence == "certain" and not request.next_step_required
 
@@ -425,7 +368,7 @@ class TestGenTool(WorkflowTool):
 
     def get_skip_reason(self) -> str:
         """Test generation-specific skip reason."""
-        return "Claude completed comprehensive test planning with full confidence"
+        return "Completed comprehensive test planning with full confidence locally"
 
     def get_skip_expert_analysis_status(self) -> str:
         """Test generation-specific expert analysis skip status."""

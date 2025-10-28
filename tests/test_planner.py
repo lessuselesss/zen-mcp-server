@@ -8,6 +8,7 @@ import pytest
 
 from tools.models import ToolModelCategory
 from tools.planner import PlannerRequest, PlannerTool
+from tools.shared.exceptions import ToolExecutionError
 
 
 class TestPlannerTool:
@@ -18,7 +19,7 @@ class TestPlannerTool:
         tool = PlannerTool()
 
         assert tool.get_name() == "planner"
-        assert "SEQUENTIAL PLANNER" in tool.get_description()
+        assert "sequential planning" in tool.get_description()
         assert tool.get_default_temperature() == 0.5  # TEMPERATURE_BALANCED
         assert tool.get_model_category() == ToolModelCategory.EXTENDED_REASONING
         assert tool.get_default_thinking_mode() == "medium"
@@ -60,10 +61,9 @@ class TestPlannerTool:
         # Check that workflow-based planner includes model field and excludes some fields
         assert "model" in schema["properties"]  # Workflow tools include model field
         assert "images" not in schema["properties"]  # Excluded for planning
-        assert "files" not in schema["properties"]  # Excluded for planning
+        assert "absolute_file_paths" not in schema["properties"]  # Excluded for planning
         assert "temperature" not in schema["properties"]
         assert "thinking_mode" not in schema["properties"]
-        assert "use_websearch" not in schema["properties"]
 
         # Check required fields
         assert "step" in schema["required"]
@@ -226,7 +226,7 @@ class TestPlannerTool:
         parsed_response = json.loads(response_text)
 
         # Check final step structure
-        assert parsed_response["status"] == "planner_complete"
+        assert parsed_response["status"] == "planning_complete"
         assert parsed_response["step_number"] == 10
         assert parsed_response["planning_complete"] is True
         assert "plan_summary" in parsed_response
@@ -329,7 +329,7 @@ class TestPlannerTool:
         # Total steps should be adjusted to match current step
         assert parsed_response["total_steps"] == 8
         assert parsed_response["step_number"] == 8
-        assert parsed_response["status"] == "pause_for_planner"
+        assert parsed_response["status"] == "pause_for_planning"
 
     @pytest.mark.asyncio
     async def test_execute_error_handling(self):
@@ -341,16 +341,12 @@ class TestPlannerTool:
             # Missing required fields: step_number, total_steps, next_step_required
         }
 
-        result = await tool.execute(arguments)
+        with pytest.raises(ToolExecutionError) as exc_info:
+            await tool.execute(arguments)
 
-        # Should return error response
-        assert len(result) == 1
-        response_text = result[0].text
-
-        # Parse the JSON response
         import json
 
-        parsed_response = json.loads(response_text)
+        parsed_response = json.loads(exc_info.value.payload)
 
         assert parsed_response["status"] == "planner_failed"
         assert "error" in parsed_response
@@ -457,6 +453,6 @@ class TestPlannerToolIntegration:
         assert parsed_response["total_steps"] == 3
         assert parsed_response["continuation_id"] == "test-simple-uuid"
         # For simple plans (< 5 steps), expect normal flow without deep thinking pause
-        assert parsed_response["status"] == "pause_for_planner"
+        assert parsed_response["status"] == "pause_for_planning"
         assert "thinking_required" not in parsed_response
         assert "Continue with step 2" in parsed_response["next_steps"]

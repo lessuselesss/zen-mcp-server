@@ -37,80 +37,21 @@ logger = logging.getLogger(__name__)
 # Tool-specific field descriptions for documentation generation
 DOCGEN_FIELD_DESCRIPTIONS = {
     "step": (
-        "For step 1: DISCOVERY PHASE ONLY - describe your plan to discover ALL files that need documentation in the current directory. "
-        "DO NOT document anything yet. Count all files, list them clearly, report the total count, then IMMEDIATELY proceed to step 2. "
-        "For step 2 and beyond: DOCUMENTATION PHASE - describe what you're currently documenting, focusing on ONE FILE at a time "
-        "to ensure complete coverage of all functions and methods within that file. CRITICAL: DO NOT ALTER ANY CODE LOGIC - "
-        "only add documentation (docstrings, comments). ALWAYS use MODERN documentation style for the programming language "
-        '(e.g., /// for Objective-C, /** */ for Java/JavaScript, """ for Python, // for Swift/C++, etc. - NEVER use legacy styles). '
-        "Consider complexity analysis, call flow information, and parameter descriptions. "
-        "If you find bugs or logic issues, TRACK THEM but DO NOT FIX THEM - report after documentation is complete. "
-        "Report progress using num_files_documented out of total_files_to_document counters."
+        "Step 1 (Discovery): list every file that needs documentation and record the total. Do not write docs yet. "
+        "Steps 2+: document exactly one file per step. Never change code logic; log bugs separately. Keep the counters accurate."
     ),
-    "step_number": (
-        "The index of the current step in the documentation generation sequence, beginning at 1. Each step should build upon or "
-        "revise the previous one."
-    ),
-    "total_steps": (
-        "Total steps needed to complete documentation: 1 (discovery) + number of files to document. "
-        "This is calculated dynamically based on total_files_to_document counter."
-    ),
-    "next_step_required": (
-        "Set to true if you plan to continue the documentation analysis with another step. False means you believe the "
-        "documentation plan is complete and ready for implementation."
-    ),
-    "findings": (
-        "Summarize everything discovered in this step about the code and its documentation needs. Include analysis of missing "
-        "documentation, complexity assessments, call flow understanding, and opportunities for improvement. Be specific and "
-        "avoid vague language—document what you now know about the code structure and how it affects your documentation plan. "
-        "IMPORTANT: Document both well-documented areas (good examples to follow) and areas needing documentation. "
-        "ALWAYS use MODERN documentation style appropriate for the programming language (/// for Objective-C, /** */ for Java/JavaScript, "
-        '""" for Python, // for Swift/C++, etc. - NEVER use legacy /* */ style for languages that have modern alternatives). '
-        "If you discover ANY BUGS OR LOGIC ERRORS (critical or non-critical), IMMEDIATELY STOP "
-        "the documentation workflow and ask the user directly if this bug should be addressed before continuing. "
-        "This includes: incorrect logic, wrong calculations, backwards conditions, inverted values, missing error handling, "
-        "security vulnerabilities, performance issues, or any code that doesn't match its intended function name/purpose. "
-        "NEVER document code with known bugs - always stop and report to user first. "
-        "In later steps, confirm or update past findings with additional evidence."
-    ),
-    "relevant_files": (
-        "Current focus files (as full absolute paths) for this step. In each step, focus on documenting "
-        "ONE FILE COMPLETELY before moving to the next. This should contain only the file(s) being "
-        "actively documented in the current step, not all files that might need documentation."
-    ),
-    "relevant_context": (
-        "List methods, functions, or classes that need documentation, in the format "
-        "'ClassName.methodName' or 'functionName'. "
-        "Prioritize those with complex logic, important interfaces, or missing/inadequate documentation."
-    ),
-    "num_files_documented": (
-        "CRITICAL COUNTER: Number of files you have COMPLETELY documented so far. Start at 0. "
-        "Increment by 1 only when a file is 100% documented (all functions/methods have documentation). "
-        "This counter prevents premature completion - you CANNOT set next_step_required=false "
-        "unless num_files_documented equals total_files_to_document."
-    ),
-    "total_files_to_document": (
-        "CRITICAL COUNTER: Total number of files discovered that need documentation in current directory. "
-        "Set this in step 1 after discovering all files. This is the target number - when "
-        "num_files_documented reaches this number, then and ONLY then can you set next_step_required=false. "
-        "This prevents stopping after documenting just one file."
-    ),
-    "document_complexity": (
-        "Whether to include algorithmic complexity (Big O) analysis in function/method documentation. "
-        "Default: true. When enabled, analyzes and documents the computational complexity of algorithms."
-    ),
-    "document_flow": (
-        "Whether to include call flow and dependency information in documentation. "
-        "Default: true. When enabled, documents which methods this function calls and which methods call this function."
-    ),
-    "update_existing": (
-        "Whether to update existing documentation when it's found to be incorrect or incomplete. "
-        "Default: true. When enabled, improves existing docs rather than just adding new ones."
-    ),
-    "comments_on_complex_logic": (
-        "Whether to add inline comments around complex logic within functions. "
-        "Default: true. When enabled, adds explanatory comments for non-obvious algorithmic steps."
-    ),
+    "step_number": "Current documentation step (starts at 1).",
+    "total_steps": "1 discovery step + one step per file documented (tracks via `total_files_to_document`).",
+    "next_step_required": "True while more files still need documentation; False once everything is complete.",
+    "findings": "Summarize documentation gaps, complexity, call flows, and well-documented areas. Stop and report immediately if you uncover a bug.",
+    "relevant_files": "Absolute paths for the file(s) you are documenting this step—stick to a single file per step.",
+    "relevant_context": "Functions or methods needing documentation (e.g. 'Class.method', 'function_name'), especially complex or user-facing areas.",
+    "num_files_documented": "Count of files finished so far. Increment only when a file is fully documented.",
+    "total_files_to_document": "Total files identified in discovery; completion requires matching this count.",
+    "document_complexity": "Include algorithmic complexity (Big O) analysis when True (default).",
+    "document_flow": "Include call flow/dependency notes when True (default).",
+    "update_existing": "True (default) to polish inaccurate or outdated docs instead of leaving them untouched.",
+    "comments_on_complex_logic": "True (default) to add inline comments around non-obvious logic.",
 }
 
 
@@ -163,23 +104,9 @@ class DocgenTool(WorkflowTool):
 
     def get_description(self) -> str:
         return (
-            "COMPREHENSIVE DOCUMENTATION GENERATION - Step-by-step code documentation with expert analysis. "
-            "This tool guides you through a systematic investigation process where you:\n\n"
-            "1. Start with step 1: describe your documentation investigation plan\n"
-            "2. STOP and investigate code structure, patterns, and documentation needs\n"
-            "3. Report findings in step 2 with concrete evidence from actual code analysis\n"
-            "4. Continue investigating between each step\n"
-            "5. Track findings, relevant files, and documentation opportunities throughout\n"
-            "6. Update assessments as understanding evolves\n"
-            "7. Once investigation is complete, receive expert analysis\n\n"
-            "IMPORTANT: This tool enforces investigation between steps:\n"
-            "- After each call, you MUST investigate before calling again\n"
-            "- Each step must include NEW evidence from code examination\n"
-            "- No recursive calls without actual investigation work\n"
-            "- The tool will specify which step number to use next\n"
-            "- Follow the required_actions list for investigation guidance\n\n"
-            "Perfect for: comprehensive documentation generation, code documentation analysis, "
-            "complexity assessment, documentation modernization, API documentation."
+            "Generates comprehensive code documentation with systematic analysis of functions, classes, and complexity. "
+            "Use for documentation generation, code analysis, complexity assessment, and API documentation. "
+            "Analyzes code structure and patterns to create thorough documentation."
         )
 
     def get_system_prompt(self) -> str:
@@ -198,7 +125,7 @@ class DocgenTool(WorkflowTool):
         """
         Docgen tool doesn't require model resolution at the MCP boundary.
 
-        The docgen tool is a self-contained workflow tool that guides Claude through
+        The docgen tool is a self-contained workflow tool that guides the CLI agent through
         systematic documentation generation without calling external AI models.
 
         Returns:
@@ -270,7 +197,6 @@ class DocgenTool(WorkflowTool):
         excluded_workflow_fields = [
             "confidence",  # Documentation doesn't use confidence levels
             "hypothesis",  # Documentation doesn't use hypothesis
-            "backtrack_from_step",  # Documentation uses simpler error recovery
             "files_checked",  # Documentation uses doc_files and doc_methods instead for better tracking
         ]
 
@@ -279,7 +205,6 @@ class DocgenTool(WorkflowTool):
             "model",  # Documentation doesn't need external model selection
             "temperature",  # Documentation doesn't need temperature control
             "thinking_mode",  # Documentation doesn't need thinking mode
-            "use_websearch",  # Documentation doesn't need web search
             "images",  # Documentation doesn't use images
         ]
 
@@ -293,7 +218,9 @@ class DocgenTool(WorkflowTool):
             excluded_common_fields=excluded_common_fields,
         )
 
-    def get_required_actions(self, step_number: int, confidence: str, findings: str, total_steps: int) -> list[str]:
+    def get_required_actions(
+        self, step_number: int, confidence: str, findings: str, total_steps: int, request=None
+    ) -> list[str]:
         """Define required actions for comprehensive documentation analysis with step-by-step file focus."""
         if step_number == 1:
             # Initial discovery ONLY - no documentation yet
@@ -503,7 +430,7 @@ class DocgenTool(WorkflowTool):
 
     def should_skip_expert_analysis(self, request, consolidated_findings) -> bool:
         """
-        Docgen tool skips expert analysis when Claude has "certain" confidence.
+        Docgen tool skips expert analysis when the CLI agent has "certain" confidence.
         """
         return request.confidence == "certain" and not request.next_step_required
 
@@ -536,7 +463,7 @@ class DocgenTool(WorkflowTool):
 
     def get_skip_reason(self) -> str:
         """Docgen-specific skip reason."""
-        return "Claude completed comprehensive documentation analysis"
+        return "Completed comprehensive documentation analysis locally"
 
     def get_request_relevant_context(self, request) -> list:
         """Get relevant_context for docgen tool."""

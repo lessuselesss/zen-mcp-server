@@ -3,10 +3,13 @@ Tests for individual tool implementations
 """
 
 import json
+import shutil
+import tempfile
 
 import pytest
 
 from tools import AnalyzeTool, ChatTool, CodeReviewTool, ThinkDeepTool
+from tools.shared.exceptions import ToolExecutionError
 
 
 class TestThinkDeepTool:
@@ -19,7 +22,7 @@ class TestThinkDeepTool:
     def test_tool_metadata(self, tool):
         """Test tool metadata"""
         assert tool.get_name() == "thinkdeep"
-        assert "COMPREHENSIVE INVESTIGATION & REASONING" in tool.get_description()
+        assert "investigation and reasoning" in tool.get_description()
         assert tool.get_default_temperature() == 0.7
 
         schema = tool.get_input_schema()
@@ -120,7 +123,7 @@ class TestCodeReviewTool:
     def test_tool_metadata(self, tool):
         """Test tool metadata"""
         assert tool.get_name() == "codereview"
-        assert "COMPREHENSIVE CODE REVIEW" in tool.get_description()
+        assert "code review" in tool.get_description()
         assert tool.get_default_temperature() == 0.2
 
         schema = tool.get_input_schema()
@@ -213,7 +216,7 @@ class TestAnalyzeTool:
     def test_tool_metadata(self, tool):
         """Test tool metadata"""
         assert tool.get_name() == "analyze"
-        assert "COMPREHENSIVE ANALYSIS WORKFLOW" in tool.get_description()
+        assert "code analysis" in tool.get_description()
         assert tool.get_default_temperature() == 0.2
 
         schema = tool.get_input_schema()
@@ -322,19 +325,19 @@ class TestAbsolutePathValidation:
     async def test_thinkdeep_tool_relative_path_rejected(self):
         """Test that thinkdeep tool rejects relative paths"""
         tool = ThinkDeepTool()
-        result = await tool.execute(
-            {
-                "step": "My analysis",
-                "step_number": 1,
-                "total_steps": 1,
-                "next_step_required": False,
-                "findings": "Initial analysis",
-                "files_checked": ["./local/file.py"],
-            }
-        )
+        with pytest.raises(ToolExecutionError) as exc_info:
+            await tool.execute(
+                {
+                    "step": "My analysis",
+                    "step_number": 1,
+                    "total_steps": 1,
+                    "next_step_required": False,
+                    "findings": "Initial analysis",
+                    "files_checked": ["./local/file.py"],
+                }
+            )
 
-        assert len(result) == 1
-        response = json.loads(result[0].text)
+        response = json.loads(exc_info.value.payload)
         assert response["status"] == "error"
         assert "must be FULL absolute paths" in response["content"]
         assert "./local/file.py" in response["content"]
@@ -343,15 +346,20 @@ class TestAbsolutePathValidation:
     async def test_chat_tool_relative_path_rejected(self):
         """Test that chat tool rejects relative paths"""
         tool = ChatTool()
-        result = await tool.execute(
-            {
-                "prompt": "Explain this code",
-                "files": ["code.py"],  # relative path without ./
-            }
-        )
+        temp_dir = tempfile.mkdtemp()
+        try:
+            with pytest.raises(ToolExecutionError) as exc_info:
+                await tool.execute(
+                    {
+                        "prompt": "Explain this code",
+                        "absolute_file_paths": ["code.py"],  # relative path without ./
+                        "working_directory_absolute_path": temp_dir,
+                    }
+                )
+        finally:
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
-        assert len(result) == 1
-        response = json.loads(result[0].text)
+        response = json.loads(exc_info.value.payload)
         assert response["status"] == "error"
         assert "must be FULL absolute paths" in response["content"]
         assert "code.py" in response["content"]

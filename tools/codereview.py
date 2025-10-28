@@ -2,7 +2,7 @@
 CodeReview Workflow tool - Systematic code review with step-by-step analysis
 
 This tool provides a structured workflow for comprehensive code review and analysis.
-It guides Claude through systematic investigation steps with forced pauses between each step
+It guides the CLI agent through systematic investigation steps with forced pauses between each step
 to ensure thorough code examination, issue identification, and quality assessment before proceeding.
 The tool supports complex review scenarios including security analysis, performance evaluation,
 and architectural assessment.
@@ -35,80 +35,29 @@ logger = logging.getLogger(__name__)
 # Tool-specific field descriptions for code review workflow
 CODEREVIEW_WORKFLOW_FIELD_DESCRIPTIONS = {
     "step": (
-        "Describe what you're currently investigating for code review by thinking deeply about the code structure, "
-        "patterns, and potential issues. In step 1, clearly state your review plan and begin forming a systematic "
-        "approach after thinking carefully about what needs to be analyzed. You must begin by passing the file path "
-        "for the initial code you are about to review in relevant_files. CRITICAL: Remember to thoroughly examine "
-        "code quality, security implications, performance concerns, and architectural patterns. Consider not only "
-        "obvious bugs and issues but also subtle concerns like over-engineering, unnecessary complexity, design "
-        "patterns that could be simplified, areas where architecture might not scale well, missing abstractions, "
-        "and ways to reduce complexity while maintaining functionality. Map out the codebase structure, understand "
-        "the business logic, and identify areas requiring deeper analysis. In all later steps, continue exploring "
-        "with precision: trace dependencies, verify assumptions, and adapt your understanding as you uncover more evidence."
+        "Review narrative. Step 1: outline the review strategy. Later steps: report findings. MUST cover quality, security, "
+        "performance, and architecture. Reference code via `relevant_files`; avoid dumping large snippets."
     ),
-    "step_number": (
-        "The index of the current step in the code review sequence, beginning at 1. Each step should build upon or "
-        "revise the previous one."
-    ),
+    "step_number": "Current review step (starts at 1) – each step should build on the last.",
     "total_steps": (
-        "Your current estimate for how many steps will be needed to complete the code review. "
-        "Adjust as new findings emerge."
+        "Number of review steps planned. External validation: two steps (analysis + summary). Internal validation: one step. "
+        "Use the same limits when continuing an existing review via continuation_id."
     ),
     "next_step_required": (
-        "Set to true if you plan to continue the investigation with another step. False means you believe the "
-        "code review analysis is complete and ready for expert validation."
+        "True when another review step follows. External validation: step 1 → True, step 2 → False. Internal validation: set False immediately. "
+        "Apply the same rule on continuation flows."
     ),
-    "findings": (
-        "Summarize everything discovered in this step about the code being reviewed. Include analysis of code quality, "
-        "security concerns, performance issues, architectural patterns, design decisions, potential bugs, code smells, "
-        "and maintainability considerations. Be specific and avoid vague language—document what you now know about "
-        "the code and how it affects your assessment. IMPORTANT: Document both positive findings (good patterns, "
-        "proper implementations, well-designed components) and concerns (potential issues, anti-patterns, security "
-        "risks, performance bottlenecks). In later steps, confirm or update past findings with additional evidence."
-    ),
-    "files_checked": (
-        "List all files (as absolute paths, do not clip or shrink file names) examined during the code review "
-        "investigation so far. Include even files ruled out or found to be unrelated, as this tracks your "
-        "exploration path."
-    ),
-    "relevant_files": (
-        "For when this is the first step, please pass absolute file paths of relevant code to review (do not clip "
-        "file paths). When used for the final step, this contains a subset of files_checked (as full absolute paths) "
-        "that contain code directly relevant to the review or contain significant issues, patterns, or examples worth "
-        "highlighting. Only list those that are directly tied to important findings, security concerns, performance "
-        "issues, or architectural decisions. This could include core implementation files, configuration files, or "
-        "files with notable patterns."
-    ),
-    "relevant_context": (
-        "List methods, functions, classes, or modules that are central to the code review findings, in the format "
-        "'ClassName.methodName', 'functionName', or 'module.ClassName'. Prioritize those that contain issues, "
-        "demonstrate patterns, show security concerns, or represent key architectural decisions."
-    ),
-    "issues_found": (
-        "List of issues identified during the investigation. Each issue should be a dictionary with 'severity' "
-        "(critical, high, medium, low) and 'description' fields. Include security vulnerabilities, performance "
-        "bottlenecks, code quality issues, architectural concerns, maintainability problems, over-engineering, "
-        "unnecessary complexity, etc."
-    ),
-    "confidence": (
-        "Indicate your current confidence in the code review assessment. Use: 'exploring' (starting analysis), 'low' "
-        "(early investigation), 'medium' (some evidence gathered), 'high' (strong evidence), 'certain' (only when "
-        "the code review is thoroughly complete and all significant issues are identified). Do NOT use 'certain' "
-        "unless the code review is comprehensively complete, use 'high' instead not 100% sure. Using 'certain' "
-        "prevents additional expert analysis."
-    ),
-    "backtrack_from_step": (
-        "If an earlier finding or assessment needs to be revised or discarded, specify the step number from which to "
-        "start over. Use this to acknowledge investigative dead ends and correct the course."
-    ),
-    "images": (
-        "Optional list of absolute paths to architecture diagrams, UI mockups, design documents, or visual references "
-        "that help with code review context. Only include if they materially assist understanding or assessment."
-    ),
-    "review_type": "Type of review to perform (full, security, performance, quick)",
-    "focus_on": "Specific aspects to focus on or additional context that would help understand areas of concern",
-    "standards": "Coding standards to enforce during the review",
-    "severity_filter": "Minimum severity level to report on the issues found",
+    "findings": "Capture findings (positive and negative) across quality, security, performance, and architecture; update each step.",
+    "files_checked": "Absolute paths of every file reviewed, including those ruled out.",
+    "relevant_files": "Step 1: list all files/dirs under review. Must be absolute full non-abbreviated paths. Final step: narrow to files tied to key findings.",
+    "relevant_context": "Functions or methods central to findings (e.g. 'Class.method' or 'function_name').",
+    "issues_found": "Issues with severity (critical/high/medium/low) and descriptions.",
+    "review_validation_type": "Set 'external' (default) for expert follow-up or 'internal' for local-only review.",
+    "images": "Optional diagram or screenshot paths that clarify review context.",
+    "review_type": "Review focus: full, security, performance, or quick.",
+    "focus_on": "Optional note on areas to emphasise (e.g. 'threading', 'auth flow').",
+    "standards": "Coding standards or style guides to enforce.",
+    "severity_filter": "Lowest severity to include when reporting issues (critical/high/medium/low/all).",
 }
 
 
@@ -135,11 +84,10 @@ class CodeReviewRequest(WorkflowRequest):
     issues_found: list[dict] = Field(
         default_factory=list, description=CODEREVIEW_WORKFLOW_FIELD_DESCRIPTIONS["issues_found"]
     )
-    confidence: Optional[str] = Field("low", description=CODEREVIEW_WORKFLOW_FIELD_DESCRIPTIONS["confidence"])
-
-    # Optional backtracking field
-    backtrack_from_step: Optional[int] = Field(
-        None, description=CODEREVIEW_WORKFLOW_FIELD_DESCRIPTIONS["backtrack_from_step"]
+    # Deprecated confidence field kept for backward compatibility only
+    confidence: Optional[str] = Field("low", exclude=True)
+    review_validation_type: Optional[Literal["external", "internal"]] = Field(
+        "external", description=CODEREVIEW_WORKFLOW_FIELD_DESCRIPTIONS.get("review_validation_type", "")
     )
 
     # Optional images for visual context
@@ -158,7 +106,6 @@ class CodeReviewRequest(WorkflowRequest):
     # Override inherited fields to exclude them from schema (except model which needs to be available)
     temperature: Optional[float] = Field(default=None, exclude=True)
     thinking_mode: Optional[str] = Field(default=None, exclude=True)
-    use_websearch: Optional[bool] = Field(default=None, exclude=True)
 
     @model_validator(mode="after")
     def validate_step_one_requirements(self):
@@ -188,23 +135,9 @@ class CodeReviewTool(WorkflowTool):
 
     def get_description(self) -> str:
         return (
-            "COMPREHENSIVE CODE REVIEW WORKFLOW - Step-by-step code review with expert analysis. "
-            "This tool guides you through a systematic investigation process where you:\\n\\n"
-            "1. Start with step 1: describe your code review investigation plan\\n"
-            "2. STOP and investigate code structure, patterns, and potential issues\\n"
-            "3. Report findings in step 2 with concrete evidence from actual code analysis\\n"
-            "4. Continue investigating between each step\\n"
-            "5. Track findings, relevant files, and issues throughout\\n"
-            "6. Update assessments as understanding evolves\\n"
-            "7. Once investigation is complete, receive expert analysis\\n\\n"
-            "IMPORTANT: This tool enforces investigation between steps:\\n"
-            "- After each call, you MUST investigate before calling again\\n"
-            "- Each step must include NEW evidence from code examination\\n"
-            "- No recursive calls without actual investigation work\\n"
-            "- The tool will specify which step number to use next\\n"
-            "- Follow the required_actions list for investigation guidance\\n\\n"
-            "Perfect for: comprehensive code review, security audits, performance analysis, "
-            "architectural assessment, code quality evaluation, anti-pattern detection."
+            "Performs systematic, step-by-step code review with expert validation. "
+            "Use for comprehensive analysis covering quality, security, performance, and architecture. "
+            "Guides through structured investigation to ensure thoroughness."
         )
 
     def get_system_prompt(self) -> str:
@@ -261,15 +194,11 @@ class CodeReviewTool(WorkflowTool):
                 "items": {"type": "string"},
                 "description": CODEREVIEW_WORKFLOW_FIELD_DESCRIPTIONS["relevant_files"],
             },
-            "confidence": {
+            "review_validation_type": {
                 "type": "string",
-                "enum": ["exploring", "low", "medium", "high", "certain"],
-                "description": CODEREVIEW_WORKFLOW_FIELD_DESCRIPTIONS["confidence"],
-            },
-            "backtrack_from_step": {
-                "type": "integer",
-                "minimum": 1,
-                "description": CODEREVIEW_WORKFLOW_FIELD_DESCRIPTIONS["backtrack_from_step"],
+                "enum": ["external", "internal"],
+                "default": "external",
+                "description": CODEREVIEW_WORKFLOW_FIELD_DESCRIPTIONS.get("review_validation_type", ""),
             },
             "issues_found": {
                 "type": "array",
@@ -312,8 +241,28 @@ class CodeReviewTool(WorkflowTool):
             tool_name=self.get_name(),
         )
 
-    def get_required_actions(self, step_number: int, confidence: str, findings: str, total_steps: int) -> list[str]:
-        """Define required actions for each investigation phase."""
+    def get_required_actions(
+        self, step_number: int, confidence: str, findings: str, total_steps: int, request=None
+    ) -> list[str]:
+        """Define required actions for each investigation phase.
+
+        Now includes request parameter for continuation-aware decisions.
+        """
+        # Check for continuation - fast track mode
+        if request:
+            continuation_id = self.get_request_continuation_id(request)
+            validation_type = self.get_review_validation_type(request)
+            if continuation_id and validation_type == "external":
+                if step_number == 1:
+                    return [
+                        "Quickly review the code files to understand context",
+                        "Identify any critical issues that need immediate attention",
+                        "Note main architectural patterns and design decisions",
+                        "Prepare summary of key findings for expert validation",
+                    ]
+                else:
+                    return ["Complete review and proceed to expert analysis"]
+
         if step_number == 1:
             # Initial code review investigation tasks
             return [
@@ -324,8 +273,8 @@ class CodeReviewTool(WorkflowTool):
                 "Look for obvious issues: bugs, security concerns, performance problems",
                 "Note any code smells, anti-patterns, or areas of concern",
             ]
-        elif confidence in ["exploring", "low"]:
-            # Need deeper investigation
+        elif step_number == 2:
+            # Deeper investigation for step 2
             return [
                 "Examine specific code sections you've identified as concerning",
                 "Analyze security implications: input validation, authentication, authorization",
@@ -334,8 +283,8 @@ class CodeReviewTool(WorkflowTool):
                 "Identify code quality issues: readability, maintainability, error handling",
                 "Search for over-engineering, unnecessary complexity, or design patterns that could be simplified",
             ]
-        elif confidence in ["medium", "high"]:
-            # Close to completion - need final verification
+        elif step_number >= 3:
+            # Final verification for later steps
             return [
                 "Verify all identified issues have been properly documented with severity levels",
                 "Check for any missed critical security vulnerabilities or performance bottlenecks",
@@ -358,11 +307,17 @@ class CodeReviewTool(WorkflowTool):
         """
         Decide when to call external model based on investigation completeness.
 
-        Don't call expert analysis if Claude has certain confidence - trust their judgment.
+        For continuations with external type, always proceed with expert analysis.
         """
         # Check if user requested to skip assistant model
         if request and not self.get_request_use_assistant_model(request):
             return False
+
+        # For continuations with external type, always proceed with expert analysis
+        continuation_id = self.get_request_continuation_id(request)
+        validation_type = self.get_review_validation_type(request)
+        if continuation_id and validation_type == "external":
+            return True  # Always perform expert analysis for external continuations
 
         # Check if we have meaningful investigation data
         return (
@@ -380,7 +335,7 @@ class CodeReviewTool(WorkflowTool):
         # Add investigation summary
         investigation_summary = self._build_code_review_summary(consolidated_findings)
         context_parts.append(
-            f"\\n=== CLAUDE'S CODE REVIEW INVESTIGATION ===\\n{investigation_summary}\\n=== END INVESTIGATION ==="
+            f"\\n=== AGENT'S CODE REVIEW INVESTIGATION ===\\n{investigation_summary}\\n=== END INVESTIGATION ==="
         )
 
         # Add review configuration context if available
@@ -471,23 +426,40 @@ class CodeReviewTool(WorkflowTool):
             "relevant_files": request.relevant_files,
             "relevant_context": request.relevant_context,
             "issues_found": request.issues_found,
-            "confidence": request.confidence,
+            "review_validation_type": self.get_review_validation_type(request),
             "hypothesis": request.findings,  # Map findings to hypothesis for compatibility
             "images": request.images or [],
+            "confidence": "high",  # Dummy value for workflow_mixin compatibility
         }
         return step_data
 
     def should_skip_expert_analysis(self, request, consolidated_findings) -> bool:
         """
-        Code review workflow skips expert analysis when Claude has "certain" confidence.
+        Code review workflow skips expert analysis only when review_validation_type is "internal".
+        Default is always to use expert analysis (external).
+        For continuations with external type, always perform expert analysis immediately.
         """
-        return request.confidence == "certain" and not request.next_step_required
+        # If it's a continuation and review_validation_type is external, don't skip
+        continuation_id = self.get_request_continuation_id(request)
+        validation_type = self.get_review_validation_type(request)
+        if continuation_id and validation_type != "internal":
+            return False  # Always do expert analysis for external continuations
+
+        # Only skip if explicitly set to internal AND review is complete
+        return validation_type == "internal" and not request.next_step_required
 
     def store_initial_issue(self, step_description: str):
         """Store initial request for expert analysis."""
         self.initial_request = step_description
 
     # Override inheritance hooks for code review-specific behavior
+
+    def get_review_validation_type(self, request) -> str:
+        """Get review validation type from request. Hook method for clean inheritance."""
+        try:
+            return request.review_validation_type or "external"
+        except AttributeError:
+            return "external"  # Default to external validation
 
     def get_completion_status(self) -> str:
         """Code review tools use review-specific status."""
@@ -508,7 +480,7 @@ class CodeReviewTool(WorkflowTool):
     def get_completion_message(self) -> str:
         """Code review-specific completion message."""
         return (
-            "Code review complete with CERTAIN confidence. You have identified all significant issues "
+            "Code review complete. You have identified all significant issues "
             "and provided comprehensive analysis. MANDATORY: Present the user with the complete review results "
             "categorized by severity, and IMMEDIATELY proceed with implementing the highest priority fixes "
             "or provide specific guidance for improvements. Focus on actionable recommendations."
@@ -516,11 +488,11 @@ class CodeReviewTool(WorkflowTool):
 
     def get_skip_reason(self) -> str:
         """Code review-specific skip reason."""
-        return "Claude completed comprehensive code review with full confidence"
+        return "Completed comprehensive code review with internal analysis only (no external model validation)"
 
     def get_skip_expert_analysis_status(self) -> str:
         """Code review-specific expert analysis skip status."""
-        return "skipped_due_to_certain_review_confidence"
+        return "skipped_due_to_internal_analysis_type"
 
     def prepare_work_summary(self) -> str:
         """Code review-specific work summary."""
@@ -563,53 +535,131 @@ class CodeReviewTool(WorkflowTool):
         """
         Code review-specific step guidance with detailed investigation instructions.
         """
-        step_guidance = self.get_code_review_step_guidance(request.step_number, request.confidence, request)
+        step_guidance = self.get_code_review_step_guidance(request.step_number, request)
         return step_guidance["next_steps"]
 
-    def get_code_review_step_guidance(self, step_number: int, confidence: str, request) -> dict[str, Any]:
+    def get_code_review_step_guidance(self, step_number: int, request) -> dict[str, Any]:
         """
         Provide step-specific guidance for code review workflow.
+        Uses get_required_actions to determine what needs to be done,
+        then formats those actions into appropriate guidance messages.
         """
-        # Generate the next steps instruction based on required actions
-        required_actions = self.get_required_actions(step_number, confidence, request.findings, request.total_steps)
+        # Get the required actions from the single source of truth
+        required_actions = self.get_required_actions(
+            step_number,
+            "medium",  # Dummy value for backward compatibility
+            request.findings or "",
+            request.total_steps,
+            request,  # Pass request for continuation-aware decisions
+        )
 
+        # Check if this is a continuation to provide context-aware guidance
+        continuation_id = self.get_request_continuation_id(request)
+        validation_type = self.get_review_validation_type(request)
+        is_external_continuation = continuation_id and validation_type == "external"
+        is_internal_continuation = continuation_id and validation_type == "internal"
+
+        # Step 1 handling
         if step_number == 1:
-            next_steps = (
-                f"MANDATORY: DO NOT call the {self.get_name()} tool again immediately. You MUST first examine "
-                f"the code files thoroughly using appropriate tools. CRITICAL AWARENESS: You need to understand "
-                f"the code structure, identify potential issues across security, performance, and quality dimensions, "
-                f"and look for architectural concerns, over-engineering, unnecessary complexity, and scalability issues. "
-                f"Use file reading tools, code analysis, and systematic examination to gather comprehensive information. "
-                f"Only call {self.get_name()} again AFTER completing your investigation. When you call "
-                f"{self.get_name()} next time, use step_number: {step_number + 1} and report specific "
-                f"files examined, issues found, and code quality assessments discovered."
-            )
-        elif confidence in ["exploring", "low"]:
-            next_steps = (
-                f"STOP! Do NOT call {self.get_name()} again yet. Based on your findings, you've identified areas that need "
-                f"deeper analysis. MANDATORY ACTIONS before calling {self.get_name()} step {step_number + 1}:\\n"
-                + "\\n".join(f"{i+1}. {action}" for i, action in enumerate(required_actions))
-                + f"\\n\\nOnly call {self.get_name()} again with step_number: {step_number + 1} AFTER "
-                + "completing these code review tasks."
-            )
-        elif confidence in ["medium", "high"]:
-            next_steps = (
-                f"WAIT! Your code review needs final verification. DO NOT call {self.get_name()} immediately. REQUIRED ACTIONS:\\n"
-                + "\\n".join(f"{i+1}. {action}" for i, action in enumerate(required_actions))
-                + f"\\n\\nREMEMBER: Ensure you have identified all significant issues across all severity levels and "
-                f"verified the completeness of your review. Document findings with specific file references and "
-                f"line numbers where applicable, then call {self.get_name()} with step_number: {step_number + 1}."
-            )
+            if is_external_continuation:
+                # Fast-track for external continuations
+                return {
+                    "next_steps": (
+                        "You are on step 1 of MAXIMUM 2 steps for continuation. CRITICAL: Quickly review the code NOW. "
+                        "MANDATORY ACTIONS:\\n"
+                        + "\\n".join(f"{i+1}. {action}" for i, action in enumerate(required_actions))
+                        + "\\n\\nSet next_step_required=True and step_number=2 for the next call to trigger expert analysis."
+                    )
+                }
+            elif is_internal_continuation:
+                # Internal validation mode
+                next_steps = (
+                    "Continuing previous conversation with internal validation only. The analysis will build "
+                    "upon the prior findings without external model validation. REQUIRED ACTIONS:\\n"
+                    + "\\n".join(f"{i+1}. {action}" for i, action in enumerate(required_actions))
+                )
+            else:
+                # Normal flow for new reviews
+                next_steps = (
+                    f"MANDATORY: DO NOT call the {self.get_name()} tool again immediately. You MUST first examine "
+                    f"the code files thoroughly using appropriate tools. CRITICAL AWARENESS: You need to:\\n"
+                    + "\\n".join(f"{i+1}. {action}" for i, action in enumerate(required_actions))
+                    + f"\\n\\nOnly call {self.get_name()} again AFTER completing your investigation. "
+                    f"When you call {self.get_name()} next time, use step_number: {step_number + 1} "
+                    f"and report specific files examined, issues found, and code quality assessments discovered."
+                )
+
+        elif step_number == 2:
+            # CRITICAL: Check if violating minimum step requirement
+            if (
+                request.total_steps >= 3
+                and request.step_number < request.total_steps
+                and not request.next_step_required
+            ):
+                next_steps = (
+                    f"ERROR: You set total_steps={request.total_steps} but next_step_required=False on step {request.step_number}. "
+                    f"This violates the minimum step requirement. You MUST set next_step_required=True until you reach the final step. "
+                    f"Call {self.get_name()} again with next_step_required=True and continue your investigation."
+                )
+            elif is_external_continuation or (not request.next_step_required and validation_type == "external"):
+                # Fast-track completion or about to complete for external validation
+                next_steps = (
+                    "Proceeding immediately to expert analysis. "
+                    f"MANDATORY: call {self.get_name()} tool immediately again, and set next_step_required=False to "
+                    f"trigger external validation NOW."
+                )
+            else:
+                # Normal flow - deeper analysis needed
+                next_steps = (
+                    f"STOP! Do NOT call {self.get_name()} again yet. You are on step 2 of {request.total_steps} minimum required steps. "
+                    f"MANDATORY ACTIONS before calling {self.get_name()} step {step_number + 1}:\\n"
+                    + "\\n".join(f"{i+1}. {action}" for i, action in enumerate(required_actions))
+                    + f"\\n\\nRemember: You MUST set next_step_required=True until step {request.total_steps}. "
+                    + f"Only call {self.get_name()} again with step_number: {step_number + 1} AFTER completing these code review tasks."
+                )
+
+        elif step_number >= 3:
+            if not request.next_step_required and validation_type == "external":
+                # About to complete - ready for expert analysis
+                next_steps = (
+                    "Completing review and proceeding to expert analysis. "
+                    "Ensure all findings are documented with specific file references and line numbers."
+                )
+            else:
+                # Later steps - final verification
+                next_steps = (
+                    f"WAIT! Your code review needs final verification. DO NOT call {self.get_name()} immediately. REQUIRED ACTIONS:\\n"
+                    + "\\n".join(f"{i+1}. {action}" for i, action in enumerate(required_actions))
+                    + f"\\n\\nREMEMBER: Ensure you have identified all significant issues across all severity levels and "
+                    f"verified the completeness of your review. Document findings with specific file references and "
+                    f"line numbers where applicable, then call {self.get_name()} with step_number: {step_number + 1}."
+                )
         else:
-            next_steps = (
-                f"PAUSE REVIEW. Before calling {self.get_name()} step {step_number + 1}, you MUST examine more code thoroughly. "
-                + "Required: "
-                + ", ".join(required_actions[:2])
-                + ". "
-                + f"Your next {self.get_name()} call (step_number: {step_number + 1}) must include "
-                f"NEW evidence from actual code analysis, not just theories. NO recursive {self.get_name()} calls "
-                f"without investigation work!"
-            )
+            # Fallback for any other case - check minimum step violation first
+            if (
+                request.total_steps >= 3
+                and request.step_number < request.total_steps
+                and not request.next_step_required
+            ):
+                next_steps = (
+                    f"ERROR: You set total_steps={request.total_steps} but next_step_required=False on step {request.step_number}. "
+                    f"This violates the minimum step requirement. You MUST set next_step_required=True until step {request.total_steps}."
+                )
+            elif not request.next_step_required and validation_type == "external":
+                next_steps = (
+                    "Completing review. "
+                    "Ensure all findings are documented with specific file references and severity levels."
+                )
+            else:
+                next_steps = (
+                    f"PAUSE REVIEW. Before calling {self.get_name()} step {step_number + 1}, you MUST examine more code thoroughly. "
+                    + "Required: "
+                    + ", ".join(required_actions[:2])
+                    + ". "
+                    + f"Your next {self.get_name()} call (step_number: {step_number + 1}) must include "
+                    f"NEW evidence from actual code analysis, not just theories. NO recursive {self.get_name()} calls "
+                    f"without investigation work!"
+                )
 
         return {"next_steps": next_steps}
 
@@ -652,7 +702,7 @@ class CodeReviewTool(WorkflowTool):
                 if severity not in response_data["code_review_status"]["issues_by_severity"]:
                     response_data["code_review_status"]["issues_by_severity"][severity] = 0
                 response_data["code_review_status"]["issues_by_severity"][severity] += 1
-            response_data["code_review_status"]["review_confidence"] = self.get_request_confidence(request)
+            response_data["code_review_status"]["review_validation_type"] = self.get_review_validation_type(request)
 
         # Map complete_codereviewworkflow to complete_code_review
         if f"complete_{tool_name}" in response_data:

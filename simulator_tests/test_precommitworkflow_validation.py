@@ -39,8 +39,8 @@ class PrecommitWorkflowValidationTest(ConversationBaseTest):
             if not self._test_single_validation_session():
                 return False
 
-            # Test 2: Validation with backtracking
-            if not self._test_validation_with_backtracking():
+            # Test 2: Validation flow that requires refocusing
+            if not self._test_validation_refocus_flow():
                 return False
 
             # Test 3: Complete validation with expert analysis
@@ -225,8 +225,8 @@ REQUIREMENTS:
                         {"severity": "high", "description": "Password hash exposed in API response"},
                         {"severity": "medium", "description": "Missing authentication on admin endpoint"},
                     ],
-                    "assessment": "Multiple critical security vulnerabilities found requiring immediate fixes",
-                    "confidence": "high",
+                    # Assessment field removed - using precommit_type instead
+                    # Confidence field removed - using precommit_type instead
                     "continuation_id": continuation_id,
                 },
             )
@@ -249,8 +249,8 @@ REQUIREMENTS:
                 self.logger.error("Issues found not properly tracked")
                 return False
 
-            if validation_status.get("assessment_confidence") != "high":
-                self.logger.error("Confidence level not properly tracked")
+            if validation_status.get("precommit_type") != "external":
+                self.logger.error("Precommit type not properly tracked")
                 return False
 
             self.logger.info("    ✅ Step 2 successful with proper tracking")
@@ -263,13 +263,13 @@ REQUIREMENTS:
             self.logger.error(f"Single validation session test failed: {e}")
             return False
 
-    def _test_validation_with_backtracking(self) -> bool:
-        """Test validation with backtracking to revise findings"""
+    def _test_validation_refocus_flow(self) -> bool:
+        """Test validation workflow that requires refocusing to revise findings"""
         try:
-            self.logger.info("  1.2: Testing validation with backtracking")
+            self.logger.info("  1.2: Testing validation refocus workflow")
 
-            # Start a new validation for testing backtracking
-            self.logger.info("    1.2.1: Start validation for backtracking test")
+            # Start a new validation for testing refocus behaviour
+            self.logger.info("    1.2.1: Start validation for refocus test")
             response1, continuation_id = self.call_mcp_tool(
                 "precommit",
                 {
@@ -285,7 +285,7 @@ REQUIREMENTS:
             )
 
             if not response1 or not continuation_id:
-                self.logger.error("Failed to start backtracking test validation")
+                self.logger.error("Failed to start refocus test validation")
                 return False
 
             # Step 2: Wrong direction
@@ -300,8 +300,7 @@ REQUIREMENTS:
                     "findings": "Connection pool configuration seems reasonable, might be looking in wrong place",
                     "files_checked": ["/db/connection.py", "/config/database.py"],
                     "relevant_files": [],
-                    "assessment": "Database configuration appears correct",
-                    "confidence": "low",
+                    # Assessment fields removed - using precommit_type instead
                     "continuation_id": continuation_id,
                 },
             )
@@ -310,12 +309,12 @@ REQUIREMENTS:
                 self.logger.error("Failed to continue to step 2")
                 return False
 
-            # Step 3: Backtrack from step 2
-            self.logger.info("    1.2.3: Step 3 - Backtrack and revise approach")
+            # Step 3: Shift investigation focus
+            self.logger.info("    1.2.3: Step 3 - Refocus and revise approach")
             response3, _ = self.call_mcp_tool(
                 "precommit",
                 {
-                    "step": "Backtracking - the issue might not be database configuration. Let me examine the actual SQL queries and data access patterns instead.",
+                    "step": "Refocusing - the issue might not be database configuration. Let me examine the actual SQL queries and data access patterns instead.",
                     "step_number": 3,
                     "total_steps": 4,
                     "next_step_required": True,
@@ -326,26 +325,24 @@ REQUIREMENTS:
                     "issues_found": [
                         {"severity": "medium", "description": "N+1 query pattern in user profile loading"}
                     ],
-                    "assessment": "Query pattern optimization needed for performance",
-                    "confidence": "medium",
-                    "backtrack_from_step": 2,  # Backtrack from step 2
+                    # Assessment fields removed - using precommit_type instead
                     "continuation_id": continuation_id,
                 },
             )
 
             if not response3:
-                self.logger.error("Failed to backtrack")
+                self.logger.error("Failed to refocus")
                 return False
 
             response3_data = self._parse_precommit_response(response3)
             if not self._validate_step_response(response3_data, 3, 4, True, "pause_for_validation"):
                 return False
 
-            self.logger.info("    ✅ Backtracking working correctly")
+            self.logger.info("    ✅ Refocus flow working correctly")
             return True
 
         except Exception as e:
-            self.logger.error(f"Backtracking test failed: {e}")
+            self.logger.error(f"Refocus test failed: {e}")
             return False
 
     def _test_complete_validation_with_analysis(self) -> bool:
@@ -397,7 +394,7 @@ REQUIREMENTS:
                         {"severity": "medium", "description": "Missing authentication on admin endpoint"},
                         {"severity": "medium", "description": "Debug mode enabled in production configuration"},
                     ],
-                    "confidence": "high",
+                    # Confidence field removed - using precommit_type instead
                     "continuation_id": continuation_id,
                     "model": "flash",  # Use flash for expert analysis
                 },
@@ -430,7 +427,7 @@ REQUIREMENTS:
             expert_analysis = response_final_data.get("expert_analysis", {})
 
             # Check for expected analysis content (checking common patterns)
-            analysis_text = json.dumps(expert_analysis).lower()
+            analysis_text = json.dumps(expert_analysis, ensure_ascii=False).lower()
 
             # Look for security issue identification
             security_indicators = ["sql", "injection", "security", "hardcoded", "secret", "authentication"]
@@ -490,8 +487,7 @@ REQUIREMENTS:
                         {"severity": "high", "description": "Hardcoded secret - use environment variables"},
                         {"severity": "medium", "description": "Missing authentication - add middleware"},
                     ],
-                    "assessment": "Critical security vulnerabilities identified with clear fixes - changes must not be committed until resolved",
-                    "confidence": "certain",  # This should skip expert analysis
+                    "precommit_type": "internal",  # This should skip expert analysis
                     "path": self.test_dir,
                     "model": "flash",
                 },
@@ -517,7 +513,7 @@ REQUIREMENTS:
                 return False
 
             expert_analysis = response_certain_data.get("expert_analysis", {})
-            if expert_analysis.get("status") != "skipped_due_to_certain_validation_confidence":
+            if expert_analysis.get("status") != "skipped_due_to_internal_analysis_type":
                 self.logger.error("Expert analysis should be skipped for certain confidence")
                 return False
 
@@ -680,8 +676,7 @@ def rate_limiting_middleware(app):
                     "files_checked": [auth_file, middleware_file],
                     "relevant_files": [auth_file],  # This should be referenced, not embedded
                     "relevant_context": ["require_auth"],
-                    "assessment": "Investigating security implementation",
-                    "confidence": "low",
+                    # Assessment fields removed - using precommit_type instead
                     "path": self.test_dir,
                     "model": "flash",
                 },
@@ -724,8 +719,7 @@ def rate_limiting_middleware(app):
                     "issues_found": [
                         {"severity": "medium", "description": "Basic token validation might be insufficient"}
                     ],
-                    "assessment": "Security implementation needs improvement",
-                    "confidence": "medium",
+                    # Assessment fields removed - using precommit_type instead
                     "model": "flash",
                 },
             )
@@ -775,8 +769,8 @@ def rate_limiting_middleware(app):
                         {"severity": "low", "description": "Missing CSRF protection"},
                         {"severity": "low", "description": "Rate limiting not implemented"},
                     ],
-                    "assessment": "Security implementation needs improvements but is acceptable for commit with follow-up tasks",
-                    "confidence": "high",
+                    # Assessment field removed - using precommit_type instead
+                    # Confidence field removed - using precommit_type instead
                     "model": "flash",
                 },
             )
@@ -915,8 +909,7 @@ if __name__ == '__main__':
                     "files_checked": [db_file],
                     "relevant_files": [db_file],
                     "relevant_context": [],
-                    "assessment": "Examining database implementation for best practices",
-                    "confidence": "low",
+                    # Assessment fields removed - using precommit_type instead
                     "path": self.test_dir,
                     "model": "flash",
                 },
@@ -950,8 +943,7 @@ if __name__ == '__main__':
                     "files_checked": [db_file, test_file],
                     "relevant_files": [db_file, test_file],
                     "relevant_context": ["DatabaseManager.create_user", "TestDatabaseManager.test_create_user"],
-                    "assessment": "Implementation looks solid with proper testing",
-                    "confidence": "medium",
+                    # Assessment fields removed - using precommit_type instead
                     "model": "flash",
                 },
             )
@@ -991,8 +983,8 @@ if __name__ == '__main__':
                     "relevant_files": [db_file, test_file],
                     "relevant_context": ["DatabaseManager.get_connection", "DatabaseManager.create_user"],
                     "issues_found": [],  # No issues found
-                    "assessment": "High quality implementation with proper security measures and testing",
-                    "confidence": "high",
+                    # Assessment field removed - using precommit_type instead
+                    # Confidence field removed - using precommit_type instead
                     "model": "flash",
                 },
             )
@@ -1026,8 +1018,8 @@ if __name__ == '__main__':
                     "relevant_files": [db_file, test_file],
                     "relevant_context": ["DatabaseManager", "TestDatabaseManager"],
                     "issues_found": [],
-                    "assessment": "Code meets all security and quality standards - approved for commit",
-                    "confidence": "high",
+                    # Assessment field removed - using precommit_type instead
+                    # Confidence field removed - using precommit_type instead
                     "model": "flash",
                 },
             )

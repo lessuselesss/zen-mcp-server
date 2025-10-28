@@ -140,14 +140,20 @@ class VersionTool(BaseTool):
         return "version"
 
     def get_description(self) -> str:
-        return (
-            "VERSION & CONFIGURATION - Get server version, configuration details, and list of available tools. "
-            "Useful for debugging and understanding capabilities."
-        )
+        return "Get server version, configuration details, and list of available tools."
 
     def get_input_schema(self) -> dict[str, Any]:
         """Return the JSON schema for the tool's input"""
-        return {"type": "object", "properties": {}, "required": []}
+        return {
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": False,
+        }
+
+    def get_annotations(self) -> Optional[dict[str, Any]]:
+        """Return tool annotations indicating this is a read-only tool"""
+        return {"readOnlyHint": True}
 
     def get_system_prompt(self) -> str:
         """No AI model needed for this tool"""
@@ -156,6 +162,9 @@ class VersionTool(BaseTool):
     def get_request_model(self):
         """Return the Pydantic model for request validation."""
         return ToolRequest
+
+    def requires_model(self) -> bool:
+        return False
 
     async def prepare_prompt(self, request: ToolRequest) -> str:
         """Not used for this utility tool"""
@@ -185,9 +194,59 @@ class VersionTool(BaseTool):
         output_lines.append(f"**Last Updated**: {__updated__}")
         output_lines.append(f"**Author**: {__author__}")
 
+        model_selection_metadata = {"mode": "unknown", "default_model": None}
+        model_selection_display = "Model selection status unavailable"
+
+        # Model selection configuration
+        try:
+            from config import DEFAULT_MODEL
+            from tools.shared.base_tool import BaseTool
+
+            auto_mode = BaseTool.is_effective_auto_mode(self)
+            if auto_mode:
+                output_lines.append(
+                    "**Model Selection**: Auto model selection mode (call `listmodels` to inspect options)"
+                )
+                model_selection_metadata = {"mode": "auto", "default_model": DEFAULT_MODEL}
+                model_selection_display = "Auto model selection (use `listmodels` for options)"
+            else:
+                output_lines.append(f"**Model Selection**: Default model set to `{DEFAULT_MODEL}`")
+                model_selection_metadata = {"mode": "default", "default_model": DEFAULT_MODEL}
+                model_selection_display = f"Default model: `{DEFAULT_MODEL}`"
+        except Exception as exc:
+            logger.debug(f"Could not determine model selection mode: {exc}")
+
+        output_lines.append("")
+        output_lines.append("## Quick Summary — relay everything below")
+        output_lines.append(f"- Version `{__version__}` (updated {__updated__})")
+        output_lines.append(f"- {model_selection_display}")
+        output_lines.append("- Run `listmodels` for the complete model catalog and capabilities")
+        output_lines.append("")
+
+        # Try to get client information
+        try:
+            # We need access to the server instance
+            # This is a bit hacky but works for now
+            import server as server_module
+            from utils.client_info import format_client_info, get_client_info_from_context
+
+            client_info = get_client_info_from_context(server_module.server)
+            if client_info:
+                formatted = format_client_info(client_info)
+                output_lines.append(f"**Connected Client**: {formatted}")
+        except Exception as e:
+            logger.debug(f"Could not get client info: {e}")
+
         # Get the current working directory (MCP server location)
         current_path = Path.cwd()
         output_lines.append(f"**Installation Path**: `{current_path}`")
+        output_lines.append("")
+        output_lines.append("## Agent Reporting Guidance")
+        output_lines.append(
+            "Agents MUST report: version, model-selection status, configured providers, and available-model count."
+        )
+        output_lines.append("Repeat the quick-summary bullets verbatim in your reply.")
+        output_lines.append("Reference `listmodels` when users ask about model availability or capabilities.")
         output_lines.append("")
 
         # Check for updates from GitHub
@@ -217,7 +276,7 @@ class VersionTool(BaseTool):
                     output_lines.append("git pull")
                     output_lines.append("```")
                     output_lines.append("")
-                    output_lines.append("*Note: Restart your Claude session after updating to use the new version.*")
+                    output_lines.append("*Note: Restart your session after updating to use the new version.*")
                 elif comparison == 0:
                     # Up to date
                     output_lines.append("")
@@ -243,49 +302,13 @@ class VersionTool(BaseTool):
 
         output_lines.append("")
 
-        # Python and system information
-        output_lines.append("## System Information")
-        output_lines.append(
-            f"**Python Version**: {sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
-        )
-        output_lines.append(f"**Platform**: {platform.system()} {platform.release()}")
-        output_lines.append(f"**Architecture**: {platform.machine()}")
-        output_lines.append("")
-
-        # Available tools
-        try:
-            # Import here to avoid circular imports
-            from server import TOOLS
-
-            tool_names = sorted(TOOLS.keys())
-            output_lines.append("## Available Tools")
-            output_lines.append(f"**Total Tools**: {len(tool_names)}")
-            output_lines.append("\n**Tool List**:")
-
-            for tool_name in tool_names:
-                tool = TOOLS[tool_name]
-                # Get the first line of the tool's description for a brief summary
-                description = tool.get_description().split("\n")[0]
-                # Truncate if too long
-                if len(description) > 80:
-                    description = description[:77] + "..."
-                output_lines.append(f"- `{tool_name}` - {description}")
-
-            output_lines.append("")
-
-        except Exception as e:
-            logger.warning(f"Error loading tools list: {e}")
-            output_lines.append("## Available Tools")
-            output_lines.append("**Error**: Could not load tools list")
-            output_lines.append("")
-
         # Configuration information
         output_lines.append("## Configuration")
 
         # Check for configured providers
         try:
-            from providers.base import ProviderType
             from providers.registry import ModelProviderRegistry
+            from providers.shared import ProviderType
 
             provider_status = []
 
@@ -294,10 +317,11 @@ class VersionTool(BaseTool):
                 ProviderType.GOOGLE,
                 ProviderType.OPENAI,
                 ProviderType.XAI,
+                ProviderType.DIAL,
                 ProviderType.OPENROUTER,
                 ProviderType.CUSTOM,
             ]
-            provider_names = ["Google Gemini", "OpenAI", "X.AI", "OpenRouter", "Custom/Local"]
+            provider_names = ["Google Gemini", "OpenAI", "X.AI", "DIAL", "OpenRouter", "Custom/Local"]
 
             for provider_type, provider_name in zip(provider_types, provider_names):
                 provider = ModelProviderRegistry.get_provider(provider_type)
@@ -310,22 +334,15 @@ class VersionTool(BaseTool):
             # Get total available models
             try:
                 available_models = ModelProviderRegistry.get_available_models(respect_restrictions=True)
-                output_lines.append(f"\n**Available Models**: {len(available_models)}")
+                output_lines.append(f"\n\n**Available Models**: {len(available_models)}")
             except Exception:
-                output_lines.append("\n**Available Models**: Unknown")
+                output_lines.append("\n\n**Available Models**: Unknown")
 
         except Exception as e:
             logger.warning(f"Error checking provider configuration: {e}")
-            output_lines.append("**Providers**: Error checking configuration")
+            output_lines.append("\n\n**Providers**: Error checking configuration")
 
         output_lines.append("")
-
-        # Usage information
-        output_lines.append("## Usage")
-        output_lines.append("- Use `listmodels` tool to see all available AI models")
-        output_lines.append("- Use `chat` for interactive conversations and brainstorming")
-        output_lines.append("- Use workflow tools (`debug`, `codereview`, `docgen`, etc.) for systematic analysis")
-        output_lines.append("- Set DEFAULT_MODEL=auto to let Claude choose the best model for each task")
 
         # Format output
         content = "\n".join(output_lines)
@@ -340,6 +357,8 @@ class VersionTool(BaseTool):
                 "last_updated": __updated__,
                 "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
                 "platform": f"{platform.system()} {platform.release()}",
+                "model_selection_mode": model_selection_metadata["mode"],
+                "default_model": model_selection_metadata["default_model"],
             },
         )
 
